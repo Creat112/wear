@@ -1,10 +1,11 @@
 const express = require('express');
 const router = express.Router();
 const { getDB } = require('../database/init');
+const { sendOrderEmail, sendCustomerOrderEmailWithTracking, sendOrderStatusUpdateEmail } = require('../utils/email');
 
 // Get all orders (Admin)
-router.get('/', (req, res) => {
-    const db = getDB();
+router.get('/', async (req, res) => {
+    const pool = getDB();
     const query = `
         SELECT o.*, i.productId, i.quantity, i.price, i.productName, i.colorId, i.colorName
         FROM orders o 
@@ -12,8 +13,8 @@ router.get('/', (req, res) => {
         ORDER BY o.date DESC
     `;
 
-    db.all(query, (err, rows) => {
-        if (err) return res.status(500).json({ error: err.message });
+    try {
+        const [rows] = await pool.execute(query);
 
         // Group items by order
         const ordersMap = new Map();
@@ -22,7 +23,9 @@ router.get('/', (req, res) => {
                 ordersMap.set(row.id, {
                     id: row.id,
                     orderNumber: row.orderNumber,
-                    total: row.total,
+                    total: Number(row.total),
+                    discountCode: row.discount_code,
+                    discountAmount: Number(row.discount_amount),
                     status: row.status,
                     date: row.date,
                     paymentMethod: row.payment_method,
@@ -44,7 +47,7 @@ router.get('/', (req, res) => {
                 ordersMap.get(row.id).items.push({
                     productId: row.productId,
                     quantity: row.quantity,
-                    price: row.price,
+                    price: Number(row.price),
                     name: row.productName,
                     colorId: row.colorId,
                     colorName: row.colorName
@@ -53,252 +56,182 @@ router.get('/', (req, res) => {
         });
 
         res.json(Array.from(ordersMap.values()));
-    });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
-const { sendOrderEmail, sendCustomerOrderEmail, sendOrderStatusUpdateEmail, sendCustomerOrderEmailWithTracking } = require('../utils/email');
-
 // Create new order with stock validation
-router.post('/', (req, res) => {
-    const { customer, shipping, items, total, orderNumber, date, paymentMethod = 'cash' } = req.body;
+router.post('/', async (req, res) => {
+    const { customer, shipping, items, total, orderNumber, date, paymentMethod = 'cash', discountCode = null, discountAmount = 0 } = req.body;
 
     if (!items || items.length === 0) {
         return res.status(400).json({ error: 'No items in order' });
     }
 
-    const db = getDB();
+    const pool = getDB();
+    const connection = await pool.getConnection();
 
-    db.serialize(() => {
-        db.run('BEGIN TRANSACTION');
+    try {
+        await connection.beginTransaction();
 
-        // CRITICAL: Validate stock for all items BEFORE creating order
-        const validateStock = () => {
-            return new Promise((resolve, reject) => {
-                let stockErrors = [];
-                let completedChecks = 0;
-                const totalChecks = items.length;
+        let stockErrors = [];
+        for (let i = 0; i < items.length; i++) {
+            const item = items[i];
+            const colorId = item.colorId;
+            const qty = Number(item.quantity) || 0;
 
-                if (totalChecks === 0) {
-                    return resolve([]);
-                }
-
-                items.forEach((item, index) => {
-                    const colorId = item.colorId;
-                    const qty = Number(item.quantity) || 0;
-
-                    if (!colorId) {
-                        stockErrors.push(`Item ${index + 1} (${item.name}) is missing color selection`);
-                        completedChecks++;
-                        if (completedChecks === totalChecks) resolve(stockErrors);
-                        return;
-                    }
-
-                    // Check stock synchronously in the transaction
-                    db.get("SELECT stock FROM product_colors WHERE id = ?", [colorId], (err, colorRow) => {
-                        if (err) {
-                            stockErrors.push(`Error checking stock for ${item.name}: ${err.message}`);
-                        } else if (!colorRow) {
-                            stockErrors.push(`Color variant not found for ${item.name}`);
-                        } else if (colorRow.stock < qty) {
-                            stockErrors.push(`Insufficient stock for ${item.name}. Available: ${colorRow.stock}, Requested: ${qty}`);
-                        }
-                        
-                        completedChecks++;
-                        if (completedChecks === totalChecks) {
-                            resolve(stockErrors);
-                        }
-                    });
-                });
-            });
-        };
-
-        validateStock().then(stockErrors => {
-            if (stockErrors.length > 0) {
-                db.run('ROLLBACK');
-                return res.status(400).json({
-                    error: 'Stock validation failed',
-                    details: stockErrors
-                });
+            if (!colorId) {
+                stockErrors.push(`Item ${i + 1} (${item.name}) is missing color selection`);
+                continue;
             }
 
-            // Proceed with order creation
-            const stmt = db.prepare(`
-                INSERT INTO orders (orderNumber, total, status, date, customerName, customerEmail, customerPhone, shippingAddress, shippingCity, shippingGov, notes, payment_method)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            `);
+            const [colorRows] = await connection.execute("SELECT stock FROM product_colors WHERE id = ?", [colorId]);
+            const colorRow = colorRows[0];
 
-            stmt.run(orderNumber, total, 'pending', date, customer.fullName, customer.email, customer.phone, shipping.address, shipping.city, shipping.governorate, shipping.notes, paymentMethod, function (err) {
-                if (err) {
-                    db.run('ROLLBACK');
-                    return res.status(500).json({ error: err.message });
-                }
+            if (!colorRow) {
+                stockErrors.push(`Color variant not found for ${item.name}`);
+            } else if (colorRow.stock < qty) {
+                stockErrors.push(`Insufficient stock for ${item.name}. Available: ${colorRow.stock}, Requested: ${qty}`);
+            }
+        }
 
-                const orderId = this.lastID;
-                const itemStmt = db.prepare(`INSERT INTO order_items (orderId, productId, quantity, price, productName, colorId, colorName) VALUES (?, ?, ?, ?, ?, ?, ?)`);
-                const stockUpdateStmt = db.prepare(`
-                    UPDATE product_colors 
-                    SET stock = stock - ? 
-                    WHERE id = ? AND stock >= ?
-                `);
+        if (stockErrors.length > 0) {
+            await connection.rollback();
+            return res.status(400).json({ error: 'Stock validation failed', details: stockErrors });
+        }
 
-                let itemsProcessed = 0;
-                const totalItems = items.length;
+        // Format ISO date to MySQL datetime (YYYY-MM-DD HH:MM:SS)
+        const mysqlDate = new Date(date || Date.now()).toISOString().slice(0, 19).replace('T', ' ');
 
-                items.forEach(item => {
-                    const productId = Number(item.productId || item.id);
-                    const qty = Number(item.quantity) || 0;
-                    const price = Number(item.price || item.colorPrice) || 0;
-                    const name = item.name || item.productName || 'Unknown Product';
-                    const colorId = item.colorId;
-                    const colorName = item.colorName || '';
+        // Proceed with order creation
+        const [result] = await connection.execute(`
+            INSERT INTO orders (orderNumber, total, discount_code, discount_amount, status, date, customerName, customerEmail, customerPhone, shippingAddress, shippingCity, shippingGov, notes, payment_method)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [
+            orderNumber, total, discountCode, discountAmount, 'pending', mysqlDate, 
+            customer.fullName, customer.email, customer.phone, 
+            shipping.address, shipping.city, shipping.governorate, shipping.notes, paymentMethod
+        ]);
 
-                    console.log(`Processing item: ${name} (ID: ${productId}), Color: ${colorName}, Qty: ${qty}`);
+        const orderId = result.insertId;
 
-                    itemStmt.run(orderId, productId, qty, price, name, colorId, colorName);
+        for (const item of items) {
+            const productId = Number(item.productId || item.id);
+            const qty = Number(item.quantity) || 0;
+            const price = Number(item.price || item.colorPrice) || 0;
+            const name = item.name || item.productName || 'Unknown Product';
+            const colorId = item.colorId;
+            const colorName = item.colorName || '';
 
-                    // Update stock for the specific color variant
-                    stockUpdateStmt.run(qty, colorId, qty, function (err) {
-                        if (err) {
-                            console.error(`Error updating stock for color ${colorId}:`, err.message);
-                        } else if (this.changes === 0) {
-                            console.warn(`Stock update failed for color ${colorId} - possible race condition`);
-                        } else {
-                            console.log(`Color ${colorId} stock updated. Rows affected: ${this.changes}`);
-                        }
-                        
-                        itemsProcessed++;
-                        if (itemsProcessed === totalItems) {
-                            itemStmt.finalize(() => {
-                                stockUpdateStmt.finalize(() => {
-                                    db.run('COMMIT', (err) => {
-                                        if (err) {
-                                            console.error('Commit failed:', err.message);
-                                            return res.status(500).json({ error: err.message });
-                                        }
-                                        console.log('Order and stock updates committed successfully.');
-                                        console.log('=== SENDING EMAILS ===');
-                                        console.log('Admin email will be sent to:', process.env.EMAIL_USER);
-                                        console.log('Customer email will be sent to:', customer.email);
-                                        console.log('Payment method:', paymentMethod);
+            await connection.execute(
+                `INSERT INTO order_items (orderId, productId, quantity, price, productName, colorId, colorName) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                [orderId, productId, qty, price, name, colorId, colorName]
+            );
 
-                                        // Send Email Notification (Async)
-                                        console.log('Starting email sending process...');
-                                        console.log('Order data for emails:', { customer, shipping, items, total, orderNumber, date, paymentMethod });
+            const [updateRes] = await connection.execute(
+                `UPDATE product_colors SET stock = stock - ? WHERE id = ? AND stock >= ?`,
+                [qty, colorId, qty]
+            );
+            if (updateRes.affectedRows === 0) {
+                console.warn(`Stock update failed for color ${colorId} - possible race condition`);
+            }
+        }
 
-                                        // Send emails asynchronously for all payment methods
-                                        sendOrderEmail({ customer, shipping, items, total, orderNumber, date, paymentMethod })
-                                            .then(success => {
-                                                if (success) console.log('Admin notified via email.');
-                                                else console.warn('Admin email notification failed.');
-                                            })
-                                            .catch(error => {
-                                                console.error('Admin email error:', error);
-                                            });
+        await connection.commit();
+        
+        console.log('Order and stock updates committed successfully.');
+        
+        // Asynchronously send emails
+        sendOrderEmail({ customer, shipping, items, total, orderNumber, date, paymentMethod }).catch(console.error);
+        sendCustomerOrderEmailWithTracking({ customer, shipping, items, total, orderNumber, date, paymentMethod }).catch(console.error);
 
-                                        sendCustomerOrderEmailWithTracking({ customer, shipping, items, total, orderNumber, date, paymentMethod })
-                                            .then(success => {
-                                                if (success) console.log('Customer notified via email with tracking link.');
-                                                else console.warn('Customer email notification failed.');
-                                            })
-                                            .catch(error => {
-                                                console.error('Customer email error:', error);
-                                            });
-
-                                        res.status(201).json({ success: true, orderId });
-                                    });
-                                });
-                            });
-                        }
-                    });
-                });
-            });
-            stmt.finalize();
-        }).catch(err => {
-            db.run('ROLLBACK');
-            console.error('Stock validation error:', err);
-            return res.status(500).json({ error: 'Stock validation failed', details: err.message });
-        });
-    });
+        res.status(201).json({ success: true, orderId });
+    } catch (err) {
+        await connection.rollback();
+        console.error('Order creation error:', err);
+        res.status(500).json({ error: err.message });
+    } finally {
+        connection.release();
+    }
 });
 
 // Track order by order number
-router.get('/track/:orderNumber', (req, res) => {
+router.get('/track/:orderNumber', async (req, res) => {
     const { orderNumber } = req.params;
-    const db = getDB();
+    const pool = getDB();
     
-    const query = `
-        SELECT o.*, i.productId, i.quantity, i.price, i.productName, i.colorId, i.colorName,
-               p.image as productImage
-        FROM orders o 
-        LEFT JOIN order_items i ON o.id = i.orderId
-        LEFT JOIN products p ON i.productId = p.id
-        WHERE o.orderNumber = ?
-    `;
-
-    db.get(query, [orderNumber], (err, row) => {
-        if (err) return res.status(500).json({ error: err.message });
-        if (!row) return res.status(404).json({ error: 'Order not found' });
-
-        // Get all items for this order
-        const itemsQuery = `
-            SELECT i.*, p.image as productImage
-            FROM order_items i 
+    try {
+        const [rows] = await pool.execute(`
+            SELECT o.*, i.productId, i.quantity, i.price, i.productName, i.colorId, i.colorName,
+                   p.image as productImage
+            FROM orders o 
+            LEFT JOIN order_items i ON o.id = i.orderId
             LEFT JOIN products p ON i.productId = p.id
-            WHERE i.orderId = ?
-        `;
+            WHERE o.orderNumber = ?
+        `, [orderNumber]);
         
-        db.all(itemsQuery, [row.id], (err, items) => {
-            if (err) return res.status(500).json({ error: err.message });
-            
-            const order = {
-                id: row.id,
-                orderNumber: row.orderNumber,
-                total: row.total,
-                status: row.status,
-                date: row.date,
-                trackingNumber: row.trackingNumber,
-                estimatedDelivery: row.estimatedDelivery,
-                shippedDate: row.shippedDate,
-                deliveredDate: row.deliveredDate,
-                customer: {
-                    fullName: row.customerName,
-                    email: row.customerEmail,
-                    phone: row.customerPhone
-                },
-                shipping: {
-                    address: row.shippingAddress,
-                    city: row.shippingCity,
-                    governorate: row.shippingGov,
-                    notes: row.notes
-                },
-                items: items.map(item => ({
-                    productId: item.productId,
-                    quantity: item.quantity,
-                    price: item.price,
-                    name: item.productName,
-                    colorId: item.colorId,
-                    colorName: item.colorName,
-                    image: item.productImage || item.image
-                }))
-            };
+        if (rows.length === 0) {
+            return res.status(404).json({ error: 'Order not found' });
+        }
 
-            res.json(order);
-        });
-    });
+        const row = rows[0]; // first row just for order meta
+        const items = rows.filter(r => r.productId != null).map(item => ({
+            productId: item.productId,
+            quantity: item.quantity,
+            price: Number(item.price),
+            name: item.productName,
+            colorId: item.colorId,
+            colorName: item.colorName,
+            image: item.productImage
+        }));
+
+        const order = {
+            id: row.id,
+            orderNumber: row.orderNumber,
+            total: Number(row.total),
+            discountCode: row.discount_code,
+            discountAmount: Number(row.discount_amount),
+            status: row.status,
+            date: row.date,
+            trackingNumber: row.trackingNumber, // Ensure trackingNumber column is present in MySQL schema if used here, or we can ignore
+            estimatedDelivery: row.estimatedDelivery,
+            shippedDate: row.shippedDate,
+            deliveredDate: row.deliveredDate,
+            customer: {
+                fullName: row.customerName,
+                email: row.customerEmail,
+                phone: row.customerPhone
+            },
+            shipping: {
+                address: row.shippingAddress,
+                city: row.shippingCity,
+                governorate: row.shippingGov,
+                notes: row.notes
+            },
+            items: items
+        };
+
+        res.json(order);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
 // Update order status with tracking information
-router.put('/:id', (req, res) => {
+router.put('/:id', async (req, res) => {
     const { status, trackingNumber, estimatedDelivery } = req.body;
     const { id } = req.params;
-    const db = getDB();
+    const pool = getDB();
     
-    // First get the order details for email notification
-    db.get("SELECT * FROM orders WHERE id = ? OR orderNumber = ?", [id, id], (err, order) => {
-        if (err) return res.status(500).json({ error: err.message });
-        if (!order) return res.status(404).json({ error: 'Order not found' });
+    try {
+        const [orders] = await pool.execute("SELECT * FROM orders WHERE id = ? OR orderNumber = ?", [id, id]);
+        const order = orders[0];
+
+        if (!order) {
+            return res.status(404).json({ error: 'Order not found' });
+        }
         
-        // Build dynamic update query
         let updateFields = ['status = ?'];
         let updateValues = [status];
         
@@ -312,90 +245,58 @@ router.put('/:id', (req, res) => {
             updateValues.push(estimatedDelivery);
         }
         
-        // Add date fields based on status
         if (status === 'shipped') {
             updateFields.push('shippedDate = ?');
-            updateValues.push(new Date().toISOString());
+            updateValues.push(new Date().toISOString().slice(0, 19).replace('T', ' '));
         } else if (status === 'delivered') {
             updateFields.push('deliveredDate = ?');
-            updateValues.push(new Date().toISOString());
+            updateValues.push(new Date().toISOString().slice(0, 19).replace('T', ' '));
         }
         
-        updateValues.push(id, id); // for WHERE clause
-        
+        updateValues.push(id, id);
         const query = `UPDATE orders SET ${updateFields.join(', ')} WHERE id = ? OR orderNumber = ?`;
         
-        db.run(query, updateValues, async function (err) {
-            if (err) return res.status(500).json({ error: err.message });
-            
-            // Send email notification to customer
-            let emailSent = false;
-            try {
-                const orderData = {
-                    orderNumber: order.orderNumber,
-                    customerEmail: order.customerEmail,
-                    date: order.date,
-                    total: order.total
-                };
-                
-                emailSent = await sendOrderStatusUpdateEmail(
-                    orderData, 
-                    status, 
-                    trackingNumber, 
-                    estimatedDelivery
-                );
-            } catch (emailError) {
-                console.error('Error sending status update email:', emailError);
-            }
-            
-            res.json({ 
-                success: true, 
-                changes: this.changes,
-                message: `Order status updated to ${status}${emailSent ? ' and customer notified' : ''}`
-            });
-        });
-    });
+        const [result] = await pool.execute(query, updateValues);
+        
+        sendOrderStatusUpdateEmail(
+            { orderNumber: order.orderNumber, customerEmail: order.customerEmail, date: order.date, total: order.total }, 
+            status, trackingNumber, estimatedDelivery
+        ).catch(console.error);
+        
+        res.json({ success: true, changes: result.affectedRows, message: `Order status updated to ${status}` });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
 // Delete order
-router.delete('/:id', (req, res) => {
+router.delete('/:id', async (req, res) => {
     const { id } = req.params;
-    const db = getDB();
+    const pool = getDB();
 
-    db.serialize(() => {
-        db.run('BEGIN TRANSACTION');
+    const connection = await pool.getConnection();
+    try {
+        await connection.beginTransaction();
 
-        // Delete order items first
-        // We need to find the internal ID if orderNumber was passed
-        db.get("SELECT id FROM orders WHERE id = ? OR orderNumber = ?", [id, id], (err, row) => {
-            if (err || !row) {
-                db.run('ROLLBACK');
-                return res.status(err ? 500 : 404).json({ error: err ? err.message : 'Order not found' });
-            }
+        const [rows] = await connection.execute("SELECT id FROM orders WHERE id = ? OR orderNumber = ?", [id, id]);
+        const row = rows[0];
 
-            const internalId = row.id;
+        if (!row) {
+            await connection.rollback();
+            return res.status(404).json({ error: 'Order not found' });
+        }
 
-            db.run('DELETE FROM order_items WHERE orderId = ?', [internalId], (err) => {
-                if (err) {
-                    db.run('ROLLBACK');
-                    return res.status(500).json({ error: err.message });
-                }
+        await connection.execute('DELETE FROM order_items WHERE orderId = ?', [row.id]);
+        await connection.execute('DELETE FROM orders WHERE id = ?', [row.id]);
 
-                // Delete the order
-                db.run('DELETE FROM orders WHERE id = ?', [internalId], function (err) {
-                    if (err) {
-                        db.run('ROLLBACK');
-                        return res.status(500).json({ error: err.message });
-                    }
-
-                    db.run('COMMIT', (err) => {
-                        if (err) return res.status(500).json({ error: err.message });
-                        res.json({ success: true });
-                    });
-                });
-            });
-        });
-    });
+        await connection.commit();
+        res.json({ success: true });
+    } catch (err) {
+        await connection.rollback();
+        res.status(500).json({ error: err.message });
+    } finally {
+        connection.release();
+    }
 });
 
 module.exports = router;

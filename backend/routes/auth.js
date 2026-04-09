@@ -18,27 +18,23 @@ router.post('/google', async (req, res) => {
         const payload = ticket.getPayload();
         const { email, name, sub: googleId } = payload;
 
-        const db = getDB();
-        db.get("SELECT * FROM users WHERE email = ?", [email], (err, row) => {
-            if (err) return res.status(500).json({ error: err.message });
+        const pool = getDB();
+        const [rows] = await pool.execute("SELECT * FROM users WHERE email = ?", [email]);
+        const row = rows[0];
 
-            if (row) {
-                // User exists, log them in
-                const { password: _, ...user } = row;
-                res.json(user);
-            } else {
-                // Create new user (default role: customer)
-                const createdAt = new Date().toISOString();
-                const stmt = db.prepare("INSERT INTO users (name, email, password, role, createdAt) VALUES (?, ?, ?, ?, ?)");
-                // We don't have a password for Google users, so we can store a placeholder or null if schema allows. 
-                // Schema has password TEXT, not NOT NULL, so null might work if not strict, but let's put 'GOOGLE_AUTH'
-                stmt.run(name, email, 'GOOGLE_AUTH', 'customer', createdAt, function (err) {
-                    if (err) return res.status(500).json({ error: err.message });
-                    res.status(201).json({ id: this.lastID, name, email, role: 'customer', createdAt });
-                });
-                stmt.finalize();
-            }
-        });
+        if (row) {
+            // User exists, log them in
+            const { password: _, ...user } = row;
+            res.json(user);
+        } else {
+            // Create new user (default role: customer)
+            const createdAt = new Date().toISOString().slice(0, 19).replace('T', ' ');
+            const [result] = await pool.execute(
+                "INSERT INTO users (name, email, password, role, createdAt) VALUES (?, ?, ?, ?, ?)",
+                [name, email, 'GOOGLE_AUTH', 'customer', createdAt]
+            );
+            res.status(201).json({ id: result.insertId, name, email, role: 'customer', createdAt });
+        }
     } catch (error) {
         console.error('Google Auth Error:', error);
         res.status(401).json({ error: 'Invalid Google Token' });
@@ -58,24 +54,25 @@ router.post('/signup', async (req, res) => {
     }
 
     try {
-        const db = getDB();
-        const createdAt = new Date().toISOString();
+        const pool = getDB();
+        const createdAt = new Date().toISOString().slice(0, 19).replace('T', ' ');
         const role = 'customer';
 
         // Hash the password
         const hashedPassword = await hashPassword(password);
 
-        const stmt = db.prepare("INSERT INTO users (name, email, password, role, createdAt) VALUES (?, ?, ?, ?, ?)");
-        stmt.run(name, email, hashedPassword, role, createdAt, function (err) {
-            if (err) {
-                if (err.message.includes('UNIQUE constraint failed')) {
-                    return res.status(409).json({ error: 'Email already exists' });
-                }
-                return res.status(500).json({ error: err.message });
+        try {
+            const [result] = await pool.execute(
+                "INSERT INTO users (name, email, password, role, createdAt) VALUES (?, ?, ?, ?, ?)",
+                [name, email, hashedPassword, role, createdAt]
+            );
+            res.status(201).json({ id: result.insertId, name, email, role, createdAt });
+        } catch (err) {
+            if (err.code === 'ER_DUP_ENTRY') {
+                return res.status(409).json({ error: 'Email already exists' });
             }
-            res.status(201).json({ id: this.lastID, name, email, role, createdAt });
-        });
-        stmt.finalize();
+            throw err;
+        }
     } catch (error) {
         console.error('Signup error:', error);
         res.status(500).json({ error: 'Server error during signup' });
@@ -90,30 +87,28 @@ router.post('/login', async (req, res) => {
     }
 
     try {
-        const db = getDB();
-        db.get("SELECT * FROM users WHERE email = ?", [email], async (err, row) => {
-            if (err) {
-                return res.status(500).json({ error: err.message });
-            }
-            if (!row) {
-                return res.status(401).json({ error: 'Invalid credentials' });
-            }
+        const pool = getDB();
+        const [rows] = await pool.execute("SELECT * FROM users WHERE email = ?", [email]);
+        const row = rows[0];
 
-            // Handle Google auth users (they have 'GOOGLE_AUTH' as password)
-            if (row.password === 'GOOGLE_AUTH') {
-                return res.status(401).json({ error: 'Please use Google Sign-In for this account' });
-            }
+        if (!row) {
+            return res.status(401).json({ error: 'Invalid credentials' });
+        }
 
-            // Compare the provided password with the hashed password
-            const isMatch = await comparePassword(password, row.password);
-            if (!isMatch) {
-                return res.status(401).json({ error: 'Invalid credentials' });
-            }
+        // Handle Google auth users (they have 'GOOGLE_AUTH' as password)
+        if (row.password === 'GOOGLE_AUTH') {
+            return res.status(401).json({ error: 'Please use Google Sign-In for this account' });
+        }
 
-            // Remove password from response
-            const { password: _, ...user } = row;
-            res.json(user);
-        });
+        // Compare the provided password with the hashed password
+        const isMatch = await comparePassword(password, row.password);
+        if (!isMatch) {
+            return res.status(401).json({ error: 'Invalid credentials' });
+        }
+
+        // Remove password from response
+        const { password: _, ...user } = row;
+        res.json(user);
     } catch (error) {
         console.error('Login error:', error);
         res.status(500).json({ error: 'Server error during login' });

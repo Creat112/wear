@@ -13,10 +13,6 @@ const { sendOrderEmail, sendCustomerOrderEmailWithTracking } = require('../utils
 
 // Paymob Payment Routes
 
-/**
- * Create Paymob payment session
- * POST /api/payment/paymob/create
- */
 router.post('/paymob/create', async (req, res) => {
     try {
         const { 
@@ -35,13 +31,9 @@ router.post('/paymob/create', async (req, res) => {
             return res.status(400).json({ error: 'Order ID is required' });
         }
 
-        // Convert amount to cents (Paymob expects amount in cents)
         const amountInCents = Math.round(amount * 100);
-
-        // Step 1: Authenticate with Paymob
         const authToken = await authenticatePaymob();
 
-        // Step 2: Create Paymob order
         const orderData = {
             merchantOrderId: orderId.toString(),
             items: items.map(item => ({
@@ -55,7 +47,6 @@ router.post('/paymob/create', async (req, res) => {
 
         const paymobOrder = await createPaymobOrder(authToken, amountInCents, orderData);
 
-        // Step 3: Generate payment key
         const paymentData = {
             firstName: customerData?.firstName || shippingData?.first_name,
             lastName: customerData?.lastName || shippingData?.last_name,
@@ -78,26 +69,21 @@ router.post('/paymob/create', async (req, res) => {
             paymentData
         );
 
-        // Step 4: Generate payment URL
         const paymentUrl = getPaymentUrl(paymentToken);
 
-        // Store payment session info in database for tracking
-        const db = getDB();
-        const stmt = db.prepare(`
+        const pool = getDB();
+        await pool.execute(`
             INSERT INTO payment_sessions 
             (order_id, paymob_order_id, payment_token, amount, status, created_at) 
             VALUES (?, ?, ?, ?, ?, ?)
-        `);
-        
-        stmt.run(
+        `, [
             orderId,
             paymobOrder.id,
             paymentToken,
             amount,
             'pending',
-            new Date().toISOString()
-        );
-        stmt.finalize();
+            new Date().toISOString().slice(0, 19).replace('T', ' ')
+        ]);
 
         res.json({
             success: true,
@@ -117,111 +103,73 @@ router.post('/paymob/create', async (req, res) => {
     }
 });
 
-/**
- * Paymob webhook callback
- * POST /api/payment/paymob/webhook
- */
-router.post('/paymob/webhook', express.raw({ type: 'application/json' }), (req, res) => {
+router.post('/paymob/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
     try {
         const webhookData = JSON.parse(req.body);
         const { hmac, obj, type } = webhookData;
 
-        // Verify webhook signature
         if (!verifyWebhookSignature(obj, hmac)) {
-            console.error('Invalid Paymob webhook signature');
             return res.status(400).json({ error: 'Invalid signature' });
         }
 
-        // Process webhook data
         const processedData = processWebhook(webhookData);
-        
-        console.log('Paymob webhook received:', processedData);
-
-        // Update payment status in database
-        const db = getDB();
+        const pool = getDB();
         
         if (type === 'TRANSACTION') {
-            // Update payment session
-            db.run(`
+            await pool.execute(`
                 UPDATE payment_sessions 
                 SET status = ?, transaction_id = ?, processed_at = ?
                 WHERE paymob_order_id = ?
             `, [
                 processedData.status,
                 processedData.transactionId,
-                new Date().toISOString(),
+                new Date().toISOString().slice(0, 19).replace('T', ' '),
                 processedData.orderId
             ]);
 
-            // Update order status if payment was successful
             if (processedData.status === 'success') {
-                db.run(`
+                await pool.execute(`
                     UPDATE orders 
                     SET status = 'paid', payment_method = 'paymob', updated_at = ?
                     WHERE id = ?
                 `, [
-                    new Date().toISOString(),
+                    new Date().toISOString().slice(0, 19).replace('T', ' '),
                     processedData.merchantOrderId
                 ]);
 
-                console.log(`Order ${processedData.merchantOrderId} paid successfully via Paymob`);
-
-                // Send emails to admin and customer
                 try {
-                    // Get order details for email
-                    db.get("SELECT * FROM orders WHERE id = ?", [processedData.merchantOrderId], async (err, orderRow) => {
-                        if (!err && orderRow) {
-                            // Send email to admin
-                            await sendOrderEmail({
-                                orderNumber: orderRow.orderNumber,
-                                customer: {
-                                    fullName: orderRow.customerName,
-                                    email: orderRow.customerEmail,
-                                    phone: orderRow.customerPhone
-                                },
-                                shipping: {
-                                    address: orderRow.shippingAddress,
-                                    city: orderRow.shippingCity,
-                                    governorate: orderRow.shippingGov,
-                                    notes: orderRow.notes
-                                },
-                                total: orderRow.total,
-                                date: orderRow.date,
-                                items: [] // Items would need to be fetched from order_items table
-                            });
+                    const [rows] = await pool.execute("SELECT * FROM orders WHERE id = ?", [processedData.merchantOrderId]);
+                    const orderRow = rows[0];
+                    if (orderRow) {
+                        await sendOrderEmail({
+                            orderNumber: orderRow.orderNumber,
+                            customer: { fullName: orderRow.customerName, email: orderRow.customerEmail, phone: orderRow.customerPhone },
+                            shipping: { address: orderRow.shippingAddress, city: orderRow.shippingCity, governorate: orderRow.shippingGov, notes: orderRow.notes },
+                            total: orderRow.total,
+                            date: orderRow.date,
+                            items: [] 
+                        });
 
-                            // Send email to customer
-                            await sendCustomerOrderEmailWithTracking({
-                                orderNumber: orderRow.orderNumber,
-                                customer: {
-                                    email: orderRow.customerEmail
-                                },
-                                total: orderRow.total,
-                                date: orderRow.date
-                            });
-
-                            console.log('Emails sent for successful payment');
-                        }
-                    });
-                } catch (emailError) {
-                    console.error('Failed to send emails:', emailError);
-                    // Don't fail the payment process if emails fail
-                }
+                        await sendCustomerOrderEmailWithTracking({
+                            orderNumber: orderRow.orderNumber,
+                            customer: { email: orderRow.customerEmail },
+                            total: orderRow.total,
+                            date: orderRow.date
+                        });
+                    }
+                } catch (emailError) {}
             } else {
-                db.run(`
+                await pool.execute(`
                     UPDATE orders 
                     SET status = 'payment_failed', updated_at = ?
                     WHERE id = ?
                 `, [
-                    new Date().toISOString(),
+                    new Date().toISOString().slice(0, 19).replace('T', ' '),
                     processedData.merchantOrderId
                 ]);
-
-                console.log(`Order ${processedData.merchantOrderId} payment failed via Paymob`);
             }
         }
 
-        // Respond to Paymob
         res.status(200).json({ received: true });
 
     } catch (error) {
@@ -230,37 +178,30 @@ router.post('/paymob/webhook', express.raw({ type: 'application/json' }), (req, 
     }
 });
 
-/**
- * Get payment status
- * GET /api/payment/paymob/status/:orderId
- */
-router.get('/paymob/status/:orderId', (req, res) => {
+router.get('/paymob/status/:orderId', async (req, res) => {
     try {
         const { orderId } = req.params;
-        const db = getDB();
+        const pool = getDB();
 
-        db.get(`
+        const [rows] = await pool.execute(`
             SELECT ps.*, o.status as order_status 
             FROM payment_sessions ps
             LEFT JOIN orders o ON ps.order_id = o.id
             WHERE ps.order_id = ?
-        `, [orderId], (err, row) => {
-            if (err) {
-                return res.status(500).json({ error: err.message });
-            }
+        `, [orderId]);
+        const row = rows[0];
 
-            if (!row) {
-                return res.status(404).json({ error: 'Payment session not found' });
-            }
+        if (!row) {
+            return res.status(404).json({ error: 'Payment session not found' });
+        }
 
-            res.json({
-                orderId: row.order_id,
-                status: row.status,
-                transactionId: row.transaction_id,
-                orderStatus: row.order_status,
-                createdAt: row.created_at,
-                processedAt: row.processed_at,
-            });
+        res.json({
+            orderId: row.order_id,
+            status: row.status,
+            transactionId: row.transaction_id,
+            orderStatus: row.order_status,
+            createdAt: row.created_at,
+            processedAt: row.processed_at,
         });
 
     } catch (error) {

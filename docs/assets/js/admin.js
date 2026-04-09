@@ -28,6 +28,20 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (exportBtn) {
         exportBtn.addEventListener('click', exportOrdersCSV);
     }
+
+    const searchInput = document.getElementById('order-search');
+    if (searchInput) {
+        searchInput.addEventListener('input', () => loadOrders());
+    }
+
+    const addDiscountBtn = document.getElementById('btn-add-discount');
+    if (addDiscountBtn) {
+        addDiscountBtn.addEventListener('click', () => {
+            const code = document.getElementById('new-discount-code').value;
+            const percent = document.getElementById('new-discount-percent').value;
+            if (code && percent) addDiscount(code, percent);
+        });
+    }
 });
 
 function initDashboard() {
@@ -51,6 +65,7 @@ function initDashboard() {
             if (targetTab === 'products') loadProducts();
             if (targetTab === 'orders') loadOrders();
             if (targetTab === 'stats') loadStats();
+            if (targetTab === 'discounts') loadDiscounts();
         });
     });
 
@@ -433,12 +448,22 @@ async function loadOrders() {
         // Update global polling cache
         currentOrdersState = orders;
 
+        const searchQuery = document.getElementById('order-search')?.value.toLowerCase() || '';
+
         if (!orders || orders.length === 0) {
             list.innerHTML = '<div style="padding:20px; text-align:center; color:#94a3b8;">No orders received yet.</div>';
             return;
         }
 
-        orders.sort((a, b) => new Date(b.date) - new Date(a.date));
+        let filteredOrders = orders;
+        if (searchQuery) {
+            filteredOrders = orders.filter(o => 
+                (o.orderNumber || '').toLowerCase().includes(searchQuery) || 
+                ('#' + o.id).toLowerCase().includes(searchQuery)
+            );
+        }
+
+        filteredOrders.sort((a, b) => new Date(b.date) - new Date(a.date));
 
         let html = `
                 <table>
@@ -454,7 +479,7 @@ async function loadOrders() {
                     <tbody>
                         `;
 
-        orders.forEach(o => {
+        filteredOrders.forEach(o => {
             html += `
                 <tr>
                     <td><span style="font-family:monospace; color:#94a3b8;">${o.orderNumber || '#' + o.id}</span></td>
@@ -676,5 +701,75 @@ window.viewOrderDetails = async function (orderId) {
     } catch (error) {
         console.error('Error loading order details:', error);
         alert('Error loading order details');
+    }
+};
+
+// ------ DISCOUNTS ------
+async function loadDiscounts() {
+    const list = document.getElementById('discounts-list');
+    try {
+        const discounts = await api.get('/discounts');
+        if (!discounts || discounts.length === 0) {
+            list.innerHTML = '<div style="padding:20px; text-align:center; color:#94a3b8;">No discount codes added yet.</div>';
+            return;
+        }
+
+        let html = `
+            <table>
+                <thead>
+                    <tr>
+                        <th>Code</th>
+                        <th>Percentage</th>
+                        <th>Status</th>
+                        <th>Created At</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+        `;
+
+        discounts.forEach(d => {
+            html += `
+                <tr style="${!d.active ? 'opacity:0.5;' : ''}">
+                    <td><strong>${d.code}</strong></td>
+                    <td>${d.percentage}%</td>
+                    <td><span class="badge ${d.active ? 'delivered' : 'cancelled'}">${d.active ? 'Active' : 'Inactive'}</span></td>
+                    <td>${new Date(d.created_at).toLocaleDateString()}</td>
+                    <td>
+                        <button class="btn-small" onclick="toggleDiscount(${d.id})" style="margin-right:5px;">${d.active ? 'Disable' : 'Enable'}</button>
+                        <button class="btn-small" onclick="removeDiscount(${d.id})" style="color: #ef4444; border-color: rgba(239, 68, 68, 0.3);">Del</button>
+                    </td>
+                </tr>
+            `;
+        });
+        html += '</tbody></table>';
+        list.innerHTML = html;
+    } catch (err) { console.error(err); }
+}
+
+async function addDiscount(code, percentage) {
+    try {
+        await api.post('/discounts', { code, percentage: parseFloat(percentage) });
+        document.getElementById('new-discount-code').value = '';
+        document.getElementById('new-discount-percent').value = '';
+        loadDiscounts();
+    } catch (err) {
+        alert(err.message || 'Error occurred');
+    }
+}
+
+window.toggleDiscount = async function(id) {
+    try {
+        await api.put(`/discounts/${id}/toggle`);
+        loadDiscounts();
+    } catch (err) { console.error(err); }
+};
+
+window.removeDiscount = async function(id) {
+    if (confirm('Delete this discount code?')) {
+        try {
+            await api.delete(`/discounts/${id}`);
+            loadDiscounts();
+        } catch (err) { console.error(err); }
     }
 };

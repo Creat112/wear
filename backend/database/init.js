@@ -1,333 +1,249 @@
-const sqlite3 = require('sqlite3').verbose();
-const path = require('path');
+const mysql = require('mysql2/promise');
 const { hashPassword } = require('../utils/passwordUtils');
+const fs = require('fs');
+const path = require('path');
 
-const dbPath = process.env.VERCEL
-    ? path.join('/tmp', 'SAVX_store.db')
-    : path.resolve(__dirname, 'SAVX_store.db');
-// Railway allows persistence on the disk, so we use the local path.
-let db;
+let pool;
 
-const initDB = () => {
-    db = new sqlite3.Database(dbPath, (err) => {
-        if (err) {
-            console.error('Error opening database', err.message);
-        } else {
-            console.log('Connected to the SQLite database.');
-            createTables();
+const initDB = async () => {
+    try {
+        // Prepare base connection config
+        const dbConfig = {
+            host: process.env.DB_HOST || '127.0.0.1',
+            user: process.env.DB_USER || 'root',
+            password: process.env.DB_PASSWORD || '',
+            port: process.env.DB_PORT || 3306
+        };
+
+        // If ca.pem exists in project root, assume remote Cloud DB (Aiven/PlanetScale) and apply SSL
+        const caPath = path.join(__dirname, '../../ca.pem');
+        if (fs.existsSync(caPath)) {
+            dbConfig.ssl = {
+                ca: fs.readFileSync(caPath)
+            };
         }
-    });
+
+        // First try to connect without database selected to create it if it doesn't exist
+        const connection = await mysql.createConnection(dbConfig);
+
+        const dbName = process.env.DB_NAME || 'savx_store';
+        await connection.query(`CREATE DATABASE IF NOT EXISTS \`${dbName}\`;`);
+        await connection.end();
+
+        // Now initialize the pool properly
+        pool = mysql.createPool({
+            ...dbConfig,
+            database: dbName,
+            waitForConnections: true,
+            connectionLimit: 10,
+            queueLimit: 0
+        });
+
+        console.log('Connected to the MySQL database.');
+        await createTables();
+    } catch (err) {
+        console.error('Error opening MySQL database', err.message);
+    }
 };
 
-const createTables = () => {
-    db.serialize(() => {
+const createTables = async () => {
+    try {
         // Users Table
-        db.run(`CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT,
-            email TEXT UNIQUE,
-            password TEXT,
-            role TEXT DEFAULT 'customer',
-            createdAt TEXT
-        )`, (err) => {
-            if (!err) {
-                // Check if name column exists (simple migration)
-                db.run("ALTER TABLE users ADD COLUMN name TEXT", (err) => {
-                    if (err && !err.message.includes("duplicate column name")) {
-                        // Ignore if column already exists
-                    }
-                });
-                // Check if role column exists (simple migration)
-                db.run("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'customer'", (err) => {
-                    if (err && !err.message.includes("duplicate column name")) {
-                        // Ignore if column already exists
-                    }
-                });
-                seedAdmin();
-            }
-        });
+        await pool.execute(`
+            CREATE TABLE IF NOT EXISTS users (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                name VARCHAR(255),
+                email VARCHAR(255) UNIQUE,
+                password VARCHAR(255),
+                role VARCHAR(50) DEFAULT 'customer',
+                createdAt DATETIME
+            )
+        `);
 
         // Products Table
-        db.run(`CREATE TABLE IF NOT EXISTS products (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT,
-            price REAL,
-            description TEXT,
-            category TEXT,
-            image TEXT,
-            stock INTEGER,
-            disabled INTEGER DEFAULT 0,
-            discount REAL DEFAULT 0,
-            originalPrice REAL
-        )`, (err) => {
-            if (!err) {
-                // Add new columns if they don't exist (migration)
-                db.run("ALTER TABLE products ADD COLUMN discount REAL DEFAULT 0", (err) => {
-                    if (err && !err.message.includes("duplicate column name")) {
-                        console.error("Error adding discount column:", err.message);
-                    }
-                });
-                db.run("ALTER TABLE products ADD COLUMN originalPrice REAL", (err) => {
-                    if (err && !err.message.includes("duplicate column name")) {
-                        console.error("Error adding originalPrice column:", err.message);
-                    }
-                });
-                seedProducts();
-            }
-        });
+        await pool.execute(`
+            CREATE TABLE IF NOT EXISTS products (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                name VARCHAR(255),
+                price DECIMAL(10, 2),
+                description TEXT,
+                category VARCHAR(255),
+                image TEXT,
+                stock INT DEFAULT 0,
+                disabled TINYINT(1) DEFAULT 0,
+                discount DECIMAL(5, 2) DEFAULT 0,
+                originalPrice DECIMAL(10, 2)
+            )
+        `);
 
-        // Product Colors Table (for color variants with individual stock and pricing)
-        db.run(`CREATE TABLE IF NOT EXISTS product_colors (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            productId INTEGER,
-            colorName TEXT,
-            colorCode TEXT,
-            price REAL,
-            stock INTEGER,
-            image TEXT,
-            FOREIGN KEY(productId) REFERENCES products(id) ON DELETE CASCADE
-        )`, (err) => {
-            if (!err) {
-                seedProductColors();
-            }
-        });
+        // Product Colors Table
+        await pool.execute(`
+            CREATE TABLE IF NOT EXISTS product_colors (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                productId INT,
+                colorName VARCHAR(100),
+                colorCode VARCHAR(20),
+                price DECIMAL(10, 2),
+                stock INT DEFAULT 0,
+                image TEXT,
+                FOREIGN KEY(productId) REFERENCES products(id) ON DELETE CASCADE
+            )
+        `);
 
         // Cart Table
-        db.run(`CREATE TABLE IF NOT EXISTS cart (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            productId INTEGER,
-            quantity INTEGER,
-            userId INTEGER,
-            colorId INTEGER,
-            addedAt TEXT,
-            FOREIGN KEY(productId) REFERENCES products(id),
-            FOREIGN KEY(colorId) REFERENCES product_colors(id)
-        )`, (err) => {
-            if (!err) {
-                // Add colorId column if it doesn't exist (migration)
-                db.run("ALTER TABLE cart ADD COLUMN colorId INTEGER", (err) => {
-                    if (err && !err.message.includes("duplicate column name")) {
-                        console.error("Error adding colorId column:", err.message);
-                    }
-                });
-            }
-        });
+        await pool.execute(`
+            CREATE TABLE IF NOT EXISTS cart (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                productId INT,
+                quantity INT,
+                userId INT,
+                colorId INT NULL,
+                addedAt DATETIME,
+                FOREIGN KEY(productId) REFERENCES products(id) ON DELETE CASCADE,
+                FOREIGN KEY(colorId) REFERENCES product_colors(id) ON DELETE SET NULL
+            )
+        `);
+
+        // Discount Codes Table
+        await pool.execute(`
+            CREATE TABLE IF NOT EXISTS discount_codes (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                code VARCHAR(50) UNIQUE,
+                percentage DECIMAL(5,2) DEFAULT 0,
+                active TINYINT(1) DEFAULT 1,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
 
         // Orders Table
-        db.run(`CREATE TABLE IF NOT EXISTS orders (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            orderNumber TEXT UNIQUE NOT NULL,
-            total REAL NOT NULL,
-            status TEXT DEFAULT 'pending',
-            date TEXT NOT NULL,
-            customerName TEXT,
-            customerEmail TEXT,
-            customerPhone TEXT,
-            shippingAddress TEXT,
-            shippingCity TEXT,
-            shippingGov TEXT,
-            notes TEXT,
-            payment_method TEXT DEFAULT 'cash',
-            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-        )`, (err) => {
-            if (!err) {
-                // Add new columns if they don't exist (migration)
-                db.run("ALTER TABLE orders ADD COLUMN payment_method TEXT DEFAULT 'cash'", (err) => {
-                    if (err && !err.message.includes("duplicate column name")) {
-                        console.error("Error adding payment_method column:", err.message);
-                    }
-                });
-                db.run("ALTER TABLE orders ADD COLUMN created_at TEXT", (err) => {
-                    if (err && !err.message.includes("duplicate column name")) {
-                        console.error("Error adding created_at column:", err.message);
-                    }
-                });
-                db.run("ALTER TABLE orders ADD COLUMN updated_at TEXT", (err) => {
-                    if (err && !err.message.includes("duplicate column name")) {
-                        console.error("Error adding updated_at column:", err.message);
-                    }
-                });
-                db.run("ALTER TABLE orders ADD COLUMN shippedDate TEXT", (err) => {
-                    if (err && !err.message.includes("duplicate column name")) {
-                        console.error("Error adding shippedDate column:", err.message);
-                    }
-                });
-                db.run("ALTER TABLE orders ADD COLUMN estimatedDelivery TEXT", (err) => {
-                    if (err && !err.message.includes("duplicate column name")) {
-                        console.error("Error adding estimatedDelivery column:", err.message);
-                    }
-                });
-                db.run("ALTER TABLE orders ADD COLUMN shippedDate TEXT", (err) => {
-                    if (err && !err.message.includes("duplicate column name")) {
-                        console.error("Error adding shippedDate column:", err.message);
-                    }
-                });
-                db.run("ALTER TABLE orders ADD COLUMN deliveredDate TEXT", (err) => {
-                    if (err && !err.message.includes("duplicate column name")) {
-                        console.error("Error adding deliveredDate column:", err.message);
-                    }
-                });
-            }
-        });
+        await pool.execute(`
+            CREATE TABLE IF NOT EXISTS orders (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                orderNumber VARCHAR(255) UNIQUE NOT NULL,
+                total DECIMAL(10, 2) NOT NULL,
+                discount_code VARCHAR(50) NULL,
+                discount_amount DECIMAL(10, 2) DEFAULT 0,
+                status VARCHAR(50) DEFAULT 'pending',
+                date DATETIME NOT NULL,
+                customerName VARCHAR(255),
+                customerEmail VARCHAR(255),
+                customerPhone VARCHAR(50),
+                shippingAddress TEXT,
+                shippingCity VARCHAR(100),
+                shippingGov VARCHAR(100),
+                notes TEXT,
+                payment_method VARCHAR(50) DEFAULT 'cash',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                shippedDate DATETIME NULL,
+                estimatedDelivery DATETIME NULL,
+                deliveredDate DATETIME NULL
+            )
+        `);
 
         // Order Items Table
-        db.run(`CREATE TABLE IF NOT EXISTS order_items (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            orderId INTEGER,
-            productId INTEGER,
-            quantity INTEGER,
-            price REAL,
-            productName TEXT,
-            colorId INTEGER,
-            colorName TEXT,
-            FOREIGN KEY(orderId) REFERENCES orders(id),
-            FOREIGN KEY(colorId) REFERENCES product_colors(id)
-        )`, (err) => {
-            if (!err) {
-                // Add color columns if they don't exist (migration)
-                db.run("ALTER TABLE order_items ADD COLUMN colorId INTEGER", (err) => {
-                    if (err && !err.message.includes("duplicate column name")) {
-                        console.error("Error adding colorId column:", err.message);
-                    }
-                });
-                db.run("ALTER TABLE order_items ADD COLUMN colorName TEXT", (err) => {
-                    if (err && !err.message.includes("duplicate column name")) {
-                        console.error("Error adding colorName column:", err.message);
-                    }
-                });
-            }
-        });
+        await pool.execute(`
+            CREATE TABLE IF NOT EXISTS order_items (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                orderId INT,
+                productId INT,
+                quantity INT,
+                price DECIMAL(10, 2),
+                productName VARCHAR(255),
+                colorId INT NULL,
+                colorName VARCHAR(100),
+                FOREIGN KEY(orderId) REFERENCES orders(id) ON DELETE CASCADE
+            )
+        `);
 
-        // Payment Sessions Table (for tracking Paymob payments)
-        db.run(`CREATE TABLE IF NOT EXISTS payment_sessions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            order_id INTEGER,
-            paymob_order_id INTEGER,
-            payment_token TEXT,
-            amount REAL,
-            status TEXT DEFAULT 'pending',
-            transaction_id TEXT,
-            created_at TEXT,
-            processed_at TEXT,
-            FOREIGN KEY(order_id) REFERENCES orders(id)
-        )`, (err) => {
-            if (err) {
-                console.error("Error creating payment_sessions table:", err.message);
-            }
-        });
+        // Payment Sessions Table
+        await pool.execute(`
+            CREATE TABLE IF NOT EXISTS payment_sessions (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                order_id INT,
+                paymob_order_id INT,
+                payment_token TEXT,
+                amount DECIMAL(10, 2),
+                status VARCHAR(50) DEFAULT 'pending',
+                transaction_id VARCHAR(255),
+                created_at DATETIME,
+                processed_at DATETIME,
+                FOREIGN KEY(order_id) REFERENCES orders(id) ON DELETE CASCADE
+            )
+        `);
 
-    });
+        await seedAdmin();
+        await seedProducts();
+        await seedProductColors();
+
+    } catch (err) {
+        console.error("Error creating tables:", err.message);
+    }
 };
 
 const seedAdmin = async () => {
-    db.get("SELECT count(*) as count FROM users WHERE role = 'admin'", async (err, row) => {
-        if (err) return console.error(err.message);
-        if (row.count === 0) {
+    try {
+        const [rows] = await pool.execute("SELECT count(*) as count FROM users WHERE role = 'admin'");
+        if (rows[0].count === 0) {
             console.log("Seeding admin user...");
-            
-            // Hash the admin password
             const hashedPassword = await hashPassword('admin123');
+            const createdAt = new Date().toISOString().slice(0, 19).replace('T', ' ');
             
-            const admin = {
-                name: 'Admin User',
-                email: 'admin@SAVX.com',
-                password: hashedPassword,
-                role: 'admin',
-                createdAt: new Date().toISOString()
-            };
-            const stmt = db.prepare("INSERT INTO users (name, email, password, role, createdAt) VALUES (?, ?, ?, ?, ?)");
-            stmt.run(admin.name, admin.email, admin.password, admin.role, admin.createdAt);
-            stmt.finalize();
+            await pool.execute(
+                "INSERT INTO users (name, email, password, role, createdAt) VALUES (?, ?, ?, ?, ?)",
+                ['Admin User', 'admin@SAVX.com', hashedPassword, 'admin', createdAt]
+            );
             console.log("Admin user seeded successfully with hashed password");
         }
-    });
+    } catch (err) {
+        console.error(err.message);
+    }
 };
 
-const seedProducts = () => {
-    db.get("SELECT count(*) as count FROM products", (err, row) => {
-        if (err) return console.error(err.message);
-        if (row.count === 0) {
+const seedProducts = async () => {
+    try {
+        const [rows] = await pool.execute("SELECT count(*) as count FROM products");
+        if (rows[0].count === 0) {
             console.log("Seeding products...");
             const products = [
-                { 
-                    name: 'Winter Compression', 
-                    price: 390, 
-                    originalPrice: 450,
-                    description: 'Comfortable winter compression wear', 
-                    category: 'compression', 
-                    image: 'products/Winter Compression/Black Compression.jpeg', 
-                    stock: 50, 
-                    discount: 13.33
-                },
-                { 
-                    name: 'Sweat Pants', 
-                    price: 580, 
-                    originalPrice: 690,
-                    description: 'Comfortable sweat pants for daily wear', 
-                    category: 'pants', 
-                    image: 'products/sweetpants/Sweet Pants Black.jpeg', 
-                    stock: 30, 
-                    discount: 15.94
-                },
-                { 
-                    name: 'Zipper Jacket', 
-                    price: 690, 
-                    originalPrice: 1010,
-                    description: 'Stylish zipper jacket with modern design', 
-                    category: 'jackets', 
-                    image: 'products/Ziper Jacket/Ziper Jacket Black.jpeg', 
-                    stock: 25, 
-                    discount: 31.68
-                },
-                { 
-                    name: 'Savax Winter Set', 
-                    price: 1300, 
-                    originalPrice: 1750,
-                    description: 'Complete set with top and bottom', 
-                    category: 'sets', 
-                    image: 'products/Set/Sets Savax Black.jpeg', 
-                    stock: 20, 
-                    discount: 25.71
-                }
+                { name: 'Winter Compression', price: 390, originalPrice: 450, description: 'Comfortable winter compression wear', category: 'compression', image: 'products/Winter Compression/Black Compression.jpeg', stock: 50, discount: 13.33 },
+                { name: 'Sweat Pants', price: 580, originalPrice: 690, description: 'Comfortable sweat pants for daily wear', category: 'pants', image: 'products/sweetpants/Sweet Pants Black.jpeg', stock: 30, discount: 15.94 },
+                { name: 'Zipper Jacket', price: 690, originalPrice: 1010, description: 'Stylish zipper jacket with modern design', category: 'jackets', image: 'products/Ziper Jacket/Ziper Jacket Black.jpeg', stock: 25, discount: 31.68 },
+                { name: 'Savax Winter Set', price: 1300, originalPrice: 1750, description: 'Complete set with top and bottom', category: 'sets', image: 'products/Set/Sets Savax Black.jpeg', stock: 20, discount: 25.71 }
             ];
 
-            const stmt = db.prepare("INSERT INTO products (name, price, description, category, image, stock, discount, originalPrice) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
-            products.forEach(p => {
-                stmt.run(p.name, p.price, p.description, p.category, p.image, p.stock, p.discount, p.originalPrice);
-            });
-            stmt.finalize();
+            for (const p of products) {
+                await pool.execute(
+                    "INSERT INTO products (name, price, description, category, image, stock, discount, originalPrice) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    [p.name, p.price, p.description, p.category, p.image, p.stock, p.discount, p.originalPrice]
+                );
+            }
         }
-    });
+    } catch (err) {
+        console.error(err.message);
+    }
 };
 
-const seedProductColors = () => {
-    db.get("SELECT count(*) as count FROM product_colors", (err, row) => {
-        if (err) return console.error(err.message);
-        if (row.count === 0) {
+const seedProductColors = async () => {
+    try {
+        const [rows] = await pool.execute("SELECT count(*) as count FROM product_colors");
+        if (rows[0].count === 0) {
             console.log("Seeding product colors...");
             const colors = [
-                // Winter Compression (productId: 1)
                 { productId: 1, colorName: 'Black', colorCode: '#000000', price: 390, stock: 25, image: 'products/Winter Compression/Black Compression.jpeg' },
                 { productId: 1, colorName: 'White', colorCode: '#FFFFFF', price: 390, stock: 25, image: 'products/Winter Compression/White Compression.jpeg' },
-
-                // Sweat Pants (productId: 2)
                 { productId: 2, colorName: 'Black', colorCode: '#000000', price: 580, stock: 10, image: 'products/sweetpants/Sweet Pants Black.jpeg' },
                 { productId: 2, colorName: 'Brown', colorCode: '#8B4513', price: 580, stock: 10, image: 'products/sweetpants/Sweet Pants Brown.jpeg' },
                 { productId: 2, colorName: 'Grey', colorCode: '#808080', price: 580, stock: 10, image: 'products/sweetpants/Sweet Pants Grey.jpeg' },
                 { productId: 2, colorName: 'Olive Green', colorCode: '#808000', price: 580, stock: 10, image: 'products/sweetpants/Sweet Pants Olive Green.jpeg' },
                 { productId: 2, colorName: 'Pink', colorCode: '#FFC0CB', price: 580, stock: 10, image: 'products/sweetpants/Sweet Pants Pink.jpeg' },
                 { productId: 2, colorName: 'White', colorCode: '#FFFFFF', price: 580, stock: 10, image: 'products/sweetpants/Sweet Pants white.jpeg' },
-
-                // Zipper Jacket (productId: 3)
                 { productId: 3, colorName: 'Black', colorCode: '#000000', price: 690, stock: 8, image: 'products/Ziper Jacket/Ziper Jacket Black.jpeg' },
                 { productId: 3, colorName: 'Olive Green', colorCode: '#808000', price: 690, stock: 8, image: 'products/Ziper Jacket/Ziper Jacket Olive Greenjpeg.jpeg' },
                 { productId: 3, colorName: 'Pink', colorCode: '#FFC0CB', price: 690, stock: 8, image: 'products/Ziper Jacket/Ziper Jacket Pink.jpeg' },
                 { productId: 3, colorName: 'White', colorCode: '#FFFFFF', price: 690, stock: 8, image: 'products/Ziper Jacket/Ziper Jacket White.jpeg' },
                 { productId: 3, colorName: 'Brown', colorCode: '#8B4513', price: 690, stock: 8, image: 'products/Ziper Jacket/Ziper Jacket brownjpeg.jpeg' },
                 { productId: 3, colorName: 'Grey', colorCode: '#808080', price: 690, stock: 8, image: 'products/Ziper Jacket/Ziper Jacket greyjpeg.jpeg' },
-
-                // Set (productId: 4)
                 { productId: 4, colorName: 'Black', colorCode: '#000000', price: 1300, stock: 5, image: 'products/Set/Sets Savax Black.jpeg' },
                 { productId: 4, colorName: 'Brown', colorCode: '#8B4513', price: 1300, stock: 5, image: 'products/Set/Sets Savax Brown.jpeg' },
                 { productId: 4, colorName: 'Grey', colorCode: '#808080', price: 1300, stock: 5, image: 'products/Set/Sets Savax Grey.jpeg' },
@@ -336,15 +252,18 @@ const seedProductColors = () => {
                 { productId: 4, colorName: 'White', colorCode: '#FFFFFF', price: 1300, stock: 5, image: 'products/Set/Sets Savax White.jpeg' }
             ];
 
-            const stmt = db.prepare("INSERT INTO product_colors (productId, colorName, colorCode, price, stock, image) VALUES (?, ?, ?, ?, ?, ?)");
-            colors.forEach(c => {
-                stmt.run(c.productId, c.colorName, c.colorCode, c.price, c.stock, c.image);
-            });
-            stmt.finalize();
+            for (const c of colors) {
+                await pool.execute(
+                    "INSERT INTO product_colors (productId, colorName, colorCode, price, stock, image) VALUES (?, ?, ?, ?, ?, ?)",
+                    [c.productId, c.colorName, c.colorCode, c.price, c.stock, c.image]
+                );
+            }
         }
-    });
+    } catch (err) {
+        console.error(err.message);
+    }
 };
 
-const getDB = () => db;
+const getDB = () => pool;
 
 module.exports = { initDB, getDB };

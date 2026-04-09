@@ -65,7 +65,51 @@ window.addEventListener("DOMContentLoaded", () => {
         });
     }
 
-    if (totalSpan) totalSpan.textContent = `EGP ${total.toFixed(2)}`;
+    let appliedDiscount = null;
+    
+    function updateTotal() {
+        if (!totalSpan) return;
+        if (appliedDiscount) {
+            const discountAmt = total * (appliedDiscount.percentage / 100);
+            const finalTotal = total - discountAmt;
+            totalSpan.innerHTML = `<del style="font-size:14px; color:#94a3b8;">EGP ${total.toFixed(2)}</del> EGP ${finalTotal.toFixed(2)}`;
+        } else {
+            totalSpan.textContent = `EGP ${total.toFixed(2)}`;
+        }
+    }
+
+    updateTotal();
+
+    const applyPromoBtn = document.getElementById('applyPromoBtn');
+    const promoCodeInput = document.getElementById('promoCode');
+    const promoMessage = document.getElementById('promoMessage');
+
+    if (applyPromoBtn && promoCodeInput) {
+        applyPromoBtn.addEventListener('click', async () => {
+            const code = promoCodeInput.value.trim().toUpperCase();
+            if (!code) return;
+
+            try {
+                const res = await api.post('/discounts/validate', { code });
+                if (res.success || res.percentage) { // sometimes API response shape has no boolean success wrapper explicitly
+                    appliedDiscount = { code: res.code, percentage: res.percentage };
+                    promoMessage.style.color = '#10b981'; // Green
+                    promoMessage.innerHTML = `Code <strong>${res.code}</strong> applied (${res.percentage}% off)`;
+                    updateTotal();
+                } else {
+                    appliedDiscount = null;
+                    promoMessage.style.color = '#ef4444'; // Red
+                    promoMessage.textContent = res.error || 'Invalid code.';
+                    updateTotal();
+                }
+            } catch (err) {
+                appliedDiscount = null;
+                promoMessage.style.color = '#ef4444'; 
+                promoMessage.textContent = err.message || 'Invalid code.';
+                updateTotal();
+            }
+        });
+    }
 
     // Location handling (existing code)
     // ... (keep existing location code)
@@ -116,11 +160,16 @@ window.addEventListener("DOMContentLoaded", () => {
             const notes = document.getElementById("notes").value || "No notes";
             const paymentMethod = document.querySelector('input[name="paymentMethod"]:checked').value;
 
+            const finalOrderTotal = appliedDiscount ? (total - (total * (appliedDiscount.percentage / 100))) : total;
+            const discountAmount = appliedDiscount ? (total * (appliedDiscount.percentage / 100)) : 0;
+
             const orderData = {
                 customer: { fullName, email, phone, secondaryPhone },
                 shipping: { governorate, city, address, notes, location: selectedLocation },
                 items: checkoutItems,
-                total: total,
+                total: finalOrderTotal,
+                discountCode: appliedDiscount ? appliedDiscount.code : null,
+                discountAmount: discountAmount,
                 orderNumber: "ORD-" + Math.floor(100000 + Math.random() * 900000),
                 date: new Date().toISOString()
             };

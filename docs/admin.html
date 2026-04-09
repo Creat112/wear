@@ -31,6 +31,10 @@
           <i class="ri-shopping-bag-3-line"></i>
           <span>Orders</span>
         </a>
+        <a href="#" class="nav-item" data-tab="discounts">
+          <i class="ri-coupon-3-line"></i>
+          <span>Discounts</span>
+        </a>
       </nav>
 
       <div class="sidebar-footer">
@@ -109,12 +113,30 @@
         <div id="tab-orders" class="view-panel">
           <div class="panel-header">
             <h2>Order Management</h2>
-            <button id="export-orders" class="btn-secondary">
-              <i class="ri-download-line"></i> Export CSV
-            </button>
+            <div style="display: flex; gap: 10px;">
+                <input type="text" id="order-search" placeholder="Search by Order ID..." style="padding: 8px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.2); background: transparent; color: white;">
+                <button id="export-orders" class="btn-secondary">
+                  <i class="ri-download-line"></i> Export CSV
+                </button>
+            </div>
           </div>
           <div class="glass table-container">
             <div id="orders-list"></div>
+          </div>
+        </div>
+
+        <!-- VIEW 4: DISCOUNTS -->
+        <div id="tab-discounts" class="view-panel">
+          <div class="panel-header">
+            <h2>Discount Codes</h2>
+          </div>
+          <div class="glass table-container" style="margin-bottom: 20px;">
+            <div style="padding: 15px; display: flex; gap: 10px;">
+                <input type="text" id="new-discount-code" placeholder="Code (e.g. SUMMER20)" style="padding: 8px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.2); background: transparent; color: white;">
+                <input type="number" id="new-discount-percent" placeholder="Percentage (e.g. 15)" style="padding: 8px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.2); background: transparent; color: white; width: 140px;">
+                <button id="btn-add-discount" class="btn-primary">Add Code</button>
+            </div>
+            <div id="discounts-list"></div>
           </div>
         </div>
 

@@ -26,6 +26,7 @@ const authRoutes = require('./routes/auth');
 const productRoutes = require('./routes/products');
 const cartRoutes = require('./routes/cart');
 const paymentRoutes = require('./routes/payment');
+const discountRoutes = require('./routes/discount');
 
 console.log('Registering API routes...');
 
@@ -37,6 +38,7 @@ console.log('Phone search route loading...');
 app.use('/api/orders', require('./routes/order-phone'));
 console.log('Phone search route loaded');
 app.use('/api/payment', paymentRoutes);
+app.use('/api/discounts', discountRoutes);
 
 console.log('API routes registered');
 
