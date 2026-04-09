@@ -28,6 +28,7 @@ const cartRoutes = require('./routes/cart');
 const paymentRoutes = require('./routes/payment');
 const discountRoutes = require('./routes/discount');
 const businessRulesRoutes = require('./routes/business-rules');
+const healthRoutes = require('./routes/health');
 
 console.log('Registering API routes...');
 
@@ -41,6 +42,7 @@ console.log('Phone search route loaded');
 app.use('/api/payment', paymentRoutes);
 app.use('/api/discounts', discountRoutes);
 app.use('/api/business-rules', businessRulesRoutes);
+app.use('/api/health', healthRoutes);
 
 console.log('API routes registered');
 
