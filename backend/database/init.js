@@ -8,8 +8,17 @@ let pool;
 const initDB = async () => {
     try {
         // Prepare base connection config
+        const host = process.env.DB_HOST || '127.0.0.1';
+        
+        if (host === '127.0.0.1' || host === 'localhost') {
+            console.warn('⚠️ WARNING: Using local database (127.0.0.1). Your data will likely disappear when the Repl restarts or republishes!');
+            console.log('👉 Make sure you have added DB_HOST, DB_USER, etc. to Replit Secrets (Lock icon in sidebar).');
+        } else {
+            console.log(`📡 Connecting to remote cloud database: ${host}`);
+        }
+
         const dbConfig = {
-            host: process.env.DB_HOST || '127.0.0.1',
+            host: host,
             user: process.env.DB_USER || 'root',
             password: process.env.DB_PASSWORD || '',
             port: process.env.DB_PORT || 3306
@@ -27,6 +36,7 @@ const initDB = async () => {
         const connection = await mysql.createConnection(dbConfig);
 
         const dbName = process.env.DB_NAME || 'savx_store';
+        console.log(`📂 Selecting database: ${dbName}`);
         await connection.query(`CREATE DATABASE IF NOT EXISTS \`${dbName}\`;`);
         await connection.end();
 
