@@ -234,7 +234,8 @@ const sendOrderEmail = async (orderData) => {
         const result = await sendEmail({
             to: process.env.EMAIL_USER,
             subject: `New Order Received: ${orderData.orderNumber}`,
-            html: htmlContent
+            html: htmlContent,
+            preferSmtp: true
         });
 
         if (!result) {
