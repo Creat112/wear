@@ -13,7 +13,6 @@ PORT = "5000"
 EMAIL_PASS = "ghlw qtye itby gtaz"
 EMAIL_USER = "sasaabdelhady333@gmail.com"
 GOOGLE_CLIENT_ID = "633744806004-b1phb0vkuivleujtdrcmoumkior2sr31.abbs.googleusercontent.com"
-RESEND_API_KEY = "re_eQKTEKxu_CG4uidg7ad98jukXxiZSTy72"
 
 [workflows]
 runButton = "Project"
