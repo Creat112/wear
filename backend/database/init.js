@@ -40,9 +40,16 @@ const initMySQL = async () => {
         reconnect: true
     };
 
-    // If ca.pem exists in project root, assume remote Cloud DB (Aiven/PlanetScale) and apply SSL
-    const caPath = path.join(__dirname, '../../ca.pem');
-    if (fs.existsSync(caPath)) {
+    // If a CA cert exists in project root, assume remote Cloud DB (Aiven) and apply SSL
+    const possibleCaPaths = [
+        path.join(__dirname, '../../ca.pem'),
+        ...require('fs').readdirSync(path.join(__dirname, '../../'))
+            .filter(f => f.endsWith('.pem'))
+            .map(f => path.join(__dirname, '../../', f))
+    ];
+    const caPath = possibleCaPaths.find(p => fs.existsSync(p));
+    if (caPath) {
+        console.log(`🔐 Using SSL certificate: ${path.basename(caPath)}`);
         dbConfig.ssl = {
             ca: fs.readFileSync(caPath)
         };
