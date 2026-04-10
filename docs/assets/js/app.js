@@ -94,7 +94,13 @@ document.addEventListener('DOMContentLoaded', async () => {
                 e.stopPropagation();
                 const btn = e.target.closest('.add-to-cart');
                 const productId = parseInt(btn.dataset.productId);
-                const colorId = btn.dataset.colorId; // Get color ID from button data
+                let colorId = btn.dataset.colorId; // Get color ID from button data
+                
+                // Validate colorId - if it's null, undefined, or empty string, set to null
+                if (colorId === 'null' || colorId === 'undefined' || colorId === '') {
+                    colorId = null;
+                }
+                
                 let quantity = 1;
                 const scope = btn.closest('div') || document;
                 const qtyInput = scope.querySelector('.quantity-input');
@@ -268,7 +274,7 @@ async function loadProducts(category = null, color = null, sortBy = null, search
                             </div>
                         ` : ''}
 
-                        <button class="btn add-to-cart" data-product-id="${product.id}" data-color-id="${hasColors ? product.colors[0].id : null}" ${totalStock === 0 ? 'disabled' : ''}>
+                        <button class="btn add-to-cart" data-product-id="${product.id}" ${hasColors ? `data-color-id="${product.colors[0].id}"` : ''} ${totalStock === 0 ? 'disabled' : ''}>
                             <i class="ri-shopping-cart-line"></i> Add to Cart
                         </button>
                     </div>
