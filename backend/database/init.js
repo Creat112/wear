@@ -26,7 +26,9 @@ const initMySQL = async () => {
     // Prepare base connection config
     const host = process.env.DB_HOST || '127.0.0.1';
     
-    if (host === '127.0.0.1' || host === 'localhost') {
+    if (host.includes('aivencloud.com')) {
+        console.log('🌐 Aiven cloud database detected');
+    } else if (host === '127.0.0.1' || host === 'localhost') {
         console.warn('⚠️ WARNING: Using local database (127.0.0.1). Your data will likely disappear when server restarts!');
         console.log('👉 Make sure you have MySQL installed and running locally.');
         console.log('📋 To install MySQL: https://dev.mysql.com/downloads/mysql/');
@@ -48,8 +50,10 @@ const initMySQL = async () => {
     // If ca.pem exists in project root, assume remote Cloud DB (Aiven/PlanetScale) and apply SSL
     const caPath = path.join(__dirname, '../../ca.pem');
     if (fs.existsSync(caPath)) {
+        console.log('🔐 SSL certificate found, enabling secure connection');
         dbConfig.ssl = {
-            ca: fs.readFileSync(caPath)
+            ca: fs.readFileSync(caPath),
+            rejectUnauthorized: true
         };
     }
 
@@ -60,18 +64,22 @@ const initMySQL = async () => {
     await testConnection.end();
     console.log('✅ MySQL connection test successful');
 
-    // First try to connect without database selected to create it if it doesn't exist
-    const connection = await mysql.createConnection(dbConfig);
-
-    const dbName = process.env.DB_NAME || 'savx_store';
-    console.log(`📂 Selecting database: ${dbName}`);
-    await connection.query(`CREATE DATABASE IF NOT EXISTS \`${dbName}\`;`);
-    await connection.end();
+    // For Aiven, don't try to create database - use existing one
+    if (host.includes('aivencloud.com')) {
+        console.log('🗄️ Using existing Aiven database');
+    } else {
+        // First try to connect without database selected to create it if it doesn't exist
+        const connection = await mysql.createConnection(dbConfig);
+        const dbName = process.env.DB_NAME || 'savx_store';
+        console.log(`📂 Creating/selecting database: ${dbName}`);
+        await connection.query(`CREATE DATABASE IF NOT EXISTS \`${dbName}\`;`);
+        await connection.end();
+    }
 
     // Now initialize the pool properly
     pool = mysql.createPool({
         ...dbConfig,
-        database: dbName,
+        database: process.env.DB_NAME || 'savx_store',
         waitForConnections: true,
         connectionLimit: 10,
         queueLimit: 0
