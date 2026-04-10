@@ -8,25 +8,6 @@ const { initDB } = require('./database/init');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Debug environment variables
-console.log('=== DATABASE CONFIGURATION DEBUG ===');
-console.log('DB_HOST:', process.env.DB_HOST || 'NOT SET - THIS IS THE PROBLEM!');
-console.log('DB_USER:', process.env.DB_USER || 'NOT SET');
-console.log('DB_PASSWORD:', process.env.DB_PASSWORD ? '***SET***' : 'NOT SET');
-console.log('DB_NAME:', process.env.DB_NAME || 'NOT SET');
-console.log('DB_PORT:', process.env.DB_PORT || 'NOT SET');
-console.log('NODE_ENV:', process.env.NODE_ENV || 'development');
-console.log('REPL_ID:', process.env.REPL_ID || 'NOT IN REPLIT');
-console.log('REPL_OWNER:', process.env.REPL_OWNER || 'NOT IN REPLIT');
-console.log('=====================================');
-
-// Check if we're in Replit
-if (process.env.REPL_ID || process.env.REPL_OWNER) {
-    console.log('🌐 RUNNING IN REPLIT ENVIRONMENT');
-} else {
-    console.log('🖥️  RUNNING IN LOCAL ENVIRONMENT');
-}
-
 // Middleware
 app.use(cors());
 app.use(bodyParser.json());
