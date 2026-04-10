@@ -76,17 +76,29 @@ router.post('/', async (req, res) => {
     }
 
     const pool = getDB();
+    
+    if (!pool) {
+        console.error('❌ Database pool not available in POST /discounts');
+        return res.status(503).json({ error: 'Database not available' });
+    }
+    
     try {
+        console.log('🔍 Creating discount:', { code, discount_type, percentage, fixed_amount });
         await pool.execute(
             "INSERT INTO discount_codes (code, discount_type, percentage, fixed_amount, active, created_at) VALUES (?, ?, ?, ?, 1, ?)",
             [code, discount_type, percentage, fixed_amount, new Date().toISOString().slice(0, 19).replace('T', ' ')]
         );
+        console.log('✅ Discount created successfully:', code);
         res.status(201).json({ success: true });
     } catch (err) {
+        console.error('❌ Error creating discount:', err);
+        console.error('Error code:', err.code);
+        console.error('Error message:', err.message);
+        console.error('SQL:', err.sql);
         if (err.code === 'ER_DUP_ENTRY') {
             return res.status(409).json({ error: 'This discount code already exists' });
         }
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: err.message, code: err.code });
     }
 });
 
