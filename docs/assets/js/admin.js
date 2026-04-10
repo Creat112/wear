@@ -658,6 +658,7 @@ window.viewOrderDetails = async function (orderId) {
                     <p><strong>Date:</strong> ${new Date(order.date).toLocaleString()}</p>
                     <p><strong>Status:</strong> <span class="badge ${order.status || 'pending'}">${order.status || 'Pending'}</span></p>
                     <p><strong>Payment Method:</strong> ${order.paymentMethod === 'paymob' ? 'VISA/Card' : 'Cash on Delivery'}</p>
+                    ${order.discountCode ? `<p><strong>Discount Code:</strong> <span style="color: #8b5cf6;">${order.discountCode}</span> <span style="color: #10b981;">(-EGP ${(order.discountAmount || 0).toFixed(2)})</span></p>` : ''}
                     <p><strong>Total Amount:</strong> <strong style="color: #10b981;">EGP ${(order.total || 0).toFixed(2)}</strong></p>
                 </div>
                 <div>
@@ -681,9 +682,9 @@ window.viewOrderDetails = async function (orderId) {
                     ${order.items && order.items.length > 0 ? order.items.map(item => `
                         <div style="display: flex; justify-content: space-between; align-items: flex-start; padding: 15px 0; border-bottom: 1px solid rgba(255,255,255,0.1);">
                             <div style="display: flex; align-items: center; gap: 15px; flex: 1; min-width: 0;">
-                                <img src="${item.image ? (item.image.startsWith('http') || item.image.startsWith('/') ? item.image : '/' + item.image) : 'products/Set/Sets Savax Black.jpeg'}" alt="${item.name}" onerror="this.src='products/Set/Sets Savax Black.jpeg'" style="width: 60px; height: 60px; object-fit: cover; border-radius: 4px; flex-shrink: 0;">
+                                <img src="${item.productImage || item.image || 'products/Set/Sets Savax Black.jpeg'}" alt="${item.name || item.productName}" onerror="this.src='products/Set/Sets Savax Black.jpeg'" style="width: 60px; height: 60px; object-fit: cover; border-radius: 4px; flex-shrink: 0;">
                                 <div style="flex: 1; min-width: 0;">
-                                    <div style="font-weight: 500; word-wrap: break-word; overflow-wrap: break-word;">${item.name}</div>
+                                    <div style="font-weight: 500; word-wrap: break-word; overflow-wrap: break-word;">${item.name || item.productName}</div>
                                     <div style="font-size: 12px; color: #94a3b8;">${item.colorName ? `Color: ${item.colorName}` : ''} | Qty: ${item.quantity}</div>
                                 </div>
                             </div>
