@@ -6,6 +6,15 @@ const { sendOrderEmail, sendCustomerOrderEmailWithTracking, sendOrderStatusUpdat
 // Get all orders (Admin)
 router.get('/', async (req, res) => {
     const pool = getDB();
+    
+    if (!pool) {
+        console.log('❌ Database not available in orders route');
+        return res.status(503).json({ 
+            error: 'Database not available', 
+            message: 'Server is starting up or database connection failed' 
+        });
+    }
+
     const query = `
         SELECT o.*, i.productId, i.quantity, i.price, i.productName, i.colorId, i.colorName
         FROM orders o 
@@ -14,7 +23,9 @@ router.get('/', async (req, res) => {
     `;
 
     try {
+        console.log('🔍 Executing orders query...');
         const [rows] = await pool.execute(query);
+        console.log('✅ Orders query successful, rows:', rows.length);
 
         // Group items by order
         const ordersMap = new Map();
@@ -57,7 +68,19 @@ router.get('/', async (req, res) => {
 
         res.json(Array.from(ordersMap.values()));
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error('❌ Orders route error:', err);
+        console.error('Error details:', {
+            message: err.message,
+            code: err.code,
+            errno: err.errno,
+            sqlState: err.sqlState,
+            sqlMessage: err.sqlMessage
+        });
+        res.status(500).json({ 
+            error: 'Failed to fetch orders', 
+            details: err.message,
+            debug: process.env.NODE_ENV === 'development' ? err.stack : undefined
+        });
     }
 });
 
