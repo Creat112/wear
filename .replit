@@ -1,2 +1,10 @@
 [agent]
 expertMode = true
+
+[userenv]
+
+[userenv.shared]
+DB_HOST = "mysql-32de793b-savx.i.aivencloud.com"
+DB_PORT = "12322"
+DB_NAME = "defaultdb"
+DB_USER = "avnadmin"
