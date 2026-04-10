@@ -6,6 +6,13 @@ const path = require('path');
 let pool;
 
 const initDB = async () => {
+    // Check if we're in Replit environment
+    if (process.env.REPL_ID || process.env.REPL_OWNER) {
+        console.log('🌐 Replit environment detected, using Replit Database...');
+        await initReplitDB();
+        return;
+    }
+
     try {
         // Try MySQL first
         await initMySQL();
@@ -90,30 +97,67 @@ const initSQLite = async () => {
     }
 };
 
+const initReplitDB = async () => {
+    try {
+        console.log('🗄️ Initializing Replit database...');
+        const ReplitDatabase = require('./replit-init');
+        const replitDB = new ReplitDatabase();
+        await replitDB.init();
+        
+        // Override the pool with Replit interface
+        pool = createReplitInterface(replitDB);
+        console.log('✅ Replit database ready');
+    } catch (replitErr) {
+        console.error('❌ Replit database failed:', replitErr.message);
+        console.warn('⚠️  Continuing without database - some features will not work');
+    }
+};
+
+const createReplitInterface = (replitDB) => {
+    return {
+        execute: async (sql, params = []) => {
+            console.log('🔍 Replit Query:', sql, params);
+            try {
+                const result = await replitDB.execute(sql, params);
+                return result;
+            } catch (error) {
+                console.error('❌ Replit query error:', error);
+                throw error;
+            }
+        }
+    };
+};
+
 const createSQLiteInterface = (sqliteDB) => {
     return {
         execute: async (sql, params = []) => {
-            // Handle SELECT queries
-            if (sql.trim().toLowerCase().startsWith('select')) {
-                const rows = await new Promise((resolve, reject) => {
+            return new Promise((resolve, reject) => {
+                console.log('🔍 SQLite Query:', sql, params);
+                
+                // Handle SELECT queries
+                if (sql.trim().toLowerCase().startsWith('select')) {
                     sqliteDB.all(sql, params, (err, rows) => {
-                        if (err) reject(err);
-                        else resolve(rows);
+                        if (err) {
+                            console.error('❌ SQLite SELECT error:', err);
+                            reject(err);
+                        } else {
+                            console.log('✅ SQLite SELECT result:', rows.length, 'rows');
+                            resolve([rows]);
+                        }
                     });
-                });
-                return [rows];
-            }
-            
-            // Handle INSERT, UPDATE, DELETE
-            const result = await new Promise((resolve, reject) => {
-                sqliteDB.run(sql, params, function(err) {
-                    if (err) reject(err);
-                    else resolve({ insertId: this.lastID, affectedRows: this.changes });
-                });
+                } else {
+                    // Handle INSERT, UPDATE, DELETE
+                    sqliteDB.run(sql, params, function(err) {
+                        if (err) {
+                            console.error('❌ SQLite EXEC error:', err);
+                            reject(err);
+                        } else {
+                            console.log('✅ SQLite EXEC result:', { insertId: this.lastID, affectedRows: this.changes });
+                            resolve([{ insertId: this.lastID, affectedRows: this.changes }]);
+                        }
+                    });
+                }
             });
-            
-            // Return in MySQL format
-            return [result];
         }
     };
 };
