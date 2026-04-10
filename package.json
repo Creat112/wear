@@ -1,26 +1,50 @@
 {
+
   "name": "SAVX-store-root",
+
   "version": "1.0.0",
+
   "description": "Root configuration for deployment",
+
   "scripts": {
+
     "start": "node backend/server.js",
+
     "build": "echo 'No build step required'"
+
   },
+
   "engines": {
+
     "node": ">=18.0.0"
+
   },
+
   "dependencies": {
-    "@replit/database": "^2.0.3",
+
     "axios": "^1.6.2",
+
     "bcrypt": "^5.1.1",
+
     "body-parser": "^2.2.1",
+
     "cors": "^2.8.5",
+
     "dotenv": "^17.2.3",
+
     "express": "^4.22.1",
+
     "google-auth-library": "^10.5.0",
+
     "mysql2": "^3.20.0",
+
     "nodemailer": "^7.0.12",
+
     "resend": "^3.5.0",
+
     "sqlite3": "^6.0.1"
+
   }
+
 }
+
