@@ -150,14 +150,25 @@ const createTables = async () => {
         `);
 
         // Migration: Add new columns if they don't exist (for existing tables)
-        try {
-            await pool.execute(`ALTER TABLE discount_codes ADD COLUMN IF NOT EXISTS discount_type ENUM('percentage', 'fixed') DEFAULT 'percentage'`);
-            await pool.execute(`ALTER TABLE discount_codes ADD COLUMN IF NOT EXISTS discount_value DECIMAL(10,2) DEFAULT 0`);
-            await pool.execute(`ALTER TABLE discount_codes ADD COLUMN IF NOT EXISTS fixed_amount DECIMAL(10,2) DEFAULT 0`);
-            console.log('✅ Discount codes table migrated successfully');
-        } catch (migrationErr) {
-            // Columns might already exist, ignore error
-            console.log('ℹ️  Discount codes migration check completed');
+        // Using individual try-catch blocks for compatibility with older MySQL versions
+        const migrations = [
+            { column: 'discount_type', sql: `ALTER TABLE discount_codes ADD COLUMN discount_type ENUM('percentage', 'fixed') DEFAULT 'percentage'` },
+            { column: 'discount_value', sql: `ALTER TABLE discount_codes ADD COLUMN discount_value DECIMAL(10,2) DEFAULT 0` },
+            { column: 'fixed_amount', sql: `ALTER TABLE discount_codes ADD COLUMN fixed_amount DECIMAL(10,2) DEFAULT 0` }
+        ];
+        
+        for (const migration of migrations) {
+            try {
+                await pool.execute(migration.sql);
+                console.log(`✅ Added column: ${migration.column}`);
+            } catch (migrationErr) {
+                // Column might already exist or other error - check if it's "Duplicate column" error
+                if (migrationErr.code === 'ER_DUP_FIELDNAME' || migrationErr.message.includes('Duplicate column')) {
+                    console.log(`ℹ️  Column ${migration.column} already exists`);
+                } else {
+                    console.log(`⚠️  Migration note for ${migration.column}:`, migrationErr.message);
+                }
+            }
         }
 
         // Orders Table
