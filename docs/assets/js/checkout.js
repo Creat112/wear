@@ -70,8 +70,13 @@ window.addEventListener("DOMContentLoaded", () => {
     function updateTotal() {
         if (!totalSpan) return;
         if (appliedDiscount) {
-            const discountAmt = total * (appliedDiscount.percentage / 100);
-            const finalTotal = total - discountAmt;
+            let discountAmt = 0;
+            if (appliedDiscount.discount_type === 'percentage') {
+                discountAmt = total * (appliedDiscount.percentage / 100);
+            } else if (appliedDiscount.discount_type === 'fixed') {
+                discountAmt = appliedDiscount.fixed_amount;
+            }
+            const finalTotal = Math.max(0, total - discountAmt); // Ensure total doesn't go negative
             totalSpan.innerHTML = `<del style="font-size:14px; color:#94a3b8;">EGP ${total.toFixed(2)}</del> EGP ${finalTotal.toFixed(2)}`;
         } else {
             totalSpan.textContent = `EGP ${total.toFixed(2)}`;
@@ -91,10 +96,15 @@ window.addEventListener("DOMContentLoaded", () => {
 
             try {
                 const res = await api.post('/discounts/validate', { code });
-                if (res.success || res.percentage) { // sometimes API response shape has no boolean success wrapper explicitly
-                    appliedDiscount = { code: res.code, percentage: res.percentage };
+                if (res.success) {
+                    appliedDiscount = { 
+                        code: res.code, 
+                        discount_type: res.discount_type,
+                        percentage: res.percentage || 0,
+                        fixed_amount: res.fixed_amount || 0
+                    };
                     promoMessage.style.color = '#10b981'; // Green
-                    promoMessage.innerHTML = `Code <strong>${res.code}</strong> applied (${res.percentage}% off)`;
+                    promoMessage.innerHTML = `Code <strong>${res.code}</strong> applied (${res.displayText})`;
                     updateTotal();
                 } else {
                     appliedDiscount = null;
@@ -147,8 +157,24 @@ window.addEventListener("DOMContentLoaded", () => {
 
     // Handle Form Submit
     if (checkoutForm) {
+        let isSubmitting = false; // Prevent double submission
+        
         checkoutForm.addEventListener("submit", async function (e) {
             e.preventDefault();
+            
+            // Prevent double-click
+            if (isSubmitting) {
+                e.preventDefault();
+                return false;
+            }
+            isSubmitting = true;
+            
+            // Disable submit button
+            const submitBtn = document.getElementById('submit-order-btn');
+            if (submitBtn) {
+                submitBtn.disabled = true;
+                submitBtn.textContent = 'Placing Order...';
+            }
 
             const fullName = document.getElementById("fullName").value;
             const email = document.getElementById("email").value;
@@ -160,8 +186,16 @@ window.addEventListener("DOMContentLoaded", () => {
             const notes = document.getElementById("notes").value || "No notes";
             const paymentMethod = document.querySelector('input[name="paymentMethod"]:checked').value;
 
-            const finalOrderTotal = appliedDiscount ? (total - (total * (appliedDiscount.percentage / 100))) : total;
-            const discountAmount = appliedDiscount ? (total * (appliedDiscount.percentage / 100)) : 0;
+            // Calculate discount based on type
+            let discountAmount = 0;
+            if (appliedDiscount) {
+                if (appliedDiscount.discount_type === 'percentage') {
+                    discountAmount = total * (appliedDiscount.percentage / 100);
+                } else if (appliedDiscount.discount_type === 'fixed') {
+                    discountAmount = appliedDiscount.fixed_amount;
+                }
+            }
+            const finalOrderTotal = Math.max(0, total - discountAmount);
 
             const orderData = {
                 customer: { fullName, email, phone, secondaryPhone },
@@ -188,11 +222,24 @@ window.addEventListener("DOMContentLoaded", () => {
                         window.location.href = "thank-you.html";
                     } else {
                         alert('Failed to place order: ' + (result.error || 'Unknown error'));
+                        isSubmitting = false; // Reset on error
+                        // Re-enable submit button
+                        if (submitBtn) {
+                            submitBtn.disabled = false;
+                            submitBtn.textContent = 'Place Order';
+                        }
                     }
                 }
             } catch (error) {
                 console.error('Order error:', error);
                 alert('Error placing order. Please try again.');
+                isSubmitting = false; // Reset on error
+                // Re-enable submit button
+                const submitBtn = document.getElementById('submit-order-btn');
+                if (submitBtn) {
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = 'Place Order';
+                }
             }
         });
     }

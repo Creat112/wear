@@ -147,7 +147,10 @@ const createTables = async () => {
             CREATE TABLE IF NOT EXISTS discount_codes (
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 code VARCHAR(50) UNIQUE,
+                discount_type ENUM('percentage', 'fixed') DEFAULT 'percentage',
+                discount_value DECIMAL(10,2) DEFAULT 0,
                 percentage DECIMAL(5,2) DEFAULT 0,
+                fixed_amount DECIMAL(10,2) DEFAULT 0,
                 active TINYINT(1) DEFAULT 1,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
