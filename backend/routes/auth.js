@@ -88,6 +88,13 @@ router.post('/login', async (req, res) => {
 
     try {
         const pool = getDB();
+        if (!pool) {
+            return res.status(503).json({ 
+                error: 'Database not available',
+                message: 'Server is starting up. Please try again in a moment.' 
+            });
+        }
+
         const [rows] = await pool.execute("SELECT * FROM users WHERE email = ?", [email]);
         const row = rows[0];
 
@@ -111,7 +118,19 @@ router.post('/login', async (req, res) => {
         res.json(user);
     } catch (error) {
         console.error('Login error:', error);
-        res.status(500).json({ error: 'Server error during login' });
+        
+        // Provide more specific error messages
+        if (error.code === 'ECONNREFUSED') {
+            return res.status(503).json({ 
+                error: 'Database unavailable',
+                message: 'Database connection failed. Please try again later.' 
+            });
+        }
+        
+        res.status(500).json({ 
+            error: 'Server error during login',
+            message: 'An unexpected error occurred. Please try again.' 
+        });
     }
 });
 

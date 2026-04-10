@@ -7,53 +7,115 @@ let pool;
 
 const initDB = async () => {
     try {
-        // Prepare base connection config
-        const host = process.env.DB_HOST || '127.0.0.1';
-        
-        if (host === '127.0.0.1' || host === 'localhost') {
-            console.warn('⚠️ WARNING: Using local database (127.0.0.1). Your data will likely disappear when the Repl restarts or republishes!');
-            console.log('👉 Make sure you have added DB_HOST, DB_USER, etc. to Replit Secrets (Lock icon in sidebar).');
-        } else {
-            console.log(`📡 Connecting to remote cloud database: ${host}`);
-        }
-
-        const dbConfig = {
-            host: host,
-            user: process.env.DB_USER || 'root',
-            password: process.env.DB_PASSWORD || '',
-            port: process.env.DB_PORT || 3306
-        };
-
-        // If ca.pem exists in project root, assume remote Cloud DB (Aiven/PlanetScale) and apply SSL
-        const caPath = path.join(__dirname, '../../ca.pem');
-        if (fs.existsSync(caPath)) {
-            dbConfig.ssl = {
-                ca: fs.readFileSync(caPath)
-            };
-        }
-
-        // First try to connect without database selected to create it if it doesn't exist
-        const connection = await mysql.createConnection(dbConfig);
-
-        const dbName = process.env.DB_NAME || 'savx_store';
-        console.log(`📂 Selecting database: ${dbName}`);
-        await connection.query(`CREATE DATABASE IF NOT EXISTS \`${dbName}\`;`);
-        await connection.end();
-
-        // Now initialize the pool properly
-        pool = mysql.createPool({
-            ...dbConfig,
-            database: dbName,
-            waitForConnections: true,
-            connectionLimit: 10,
-            queueLimit: 0
-        });
-
-        console.log('Connected to the MySQL database.');
-        await createTables();
+        // Try MySQL first
+        await initMySQL();
     } catch (err) {
-        console.error('Error opening MySQL database', err.message);
+        console.error('❌ MySQL failed, trying SQLite fallback...');
+        await initSQLite();
     }
+};
+
+const initMySQL = async () => {
+    // Prepare base connection config
+    const host = process.env.DB_HOST || '127.0.0.1';
+    
+    if (host === '127.0.0.1' || host === 'localhost') {
+        console.warn('⚠️ WARNING: Using local database (127.0.0.1). Your data will likely disappear when server restarts!');
+        console.log('👉 Make sure you have MySQL installed and running locally.');
+        console.log('📋 To install MySQL: https://dev.mysql.com/downloads/mysql/');
+        console.log('🔧 Or configure a cloud database in your .env file');
+    } else {
+        console.log(`📡 Connecting to remote cloud database: ${host}`);
+    }
+
+    const dbConfig = {
+        host: host,
+        user: process.env.DB_USER || 'root',
+        password: process.env.DB_PASSWORD || '',
+        port: process.env.DB_PORT || 3306,
+        acquireTimeout: 60000,
+        timeout: 60000,
+        reconnect: true
+    };
+
+    // If ca.pem exists in project root, assume remote Cloud DB (Aiven/PlanetScale) and apply SSL
+    const caPath = path.join(__dirname, '../../ca.pem');
+    if (fs.existsSync(caPath)) {
+        dbConfig.ssl = {
+            ca: fs.readFileSync(caPath)
+        };
+    }
+
+    // Test basic connection first
+    console.log('🔍 Testing MySQL connection...');
+    const testConnection = await mysql.createConnection(dbConfig);
+    await testConnection.ping();
+    await testConnection.end();
+    console.log('✅ MySQL connection test successful');
+
+    // First try to connect without database selected to create it if it doesn't exist
+    const connection = await mysql.createConnection(dbConfig);
+
+    const dbName = process.env.DB_NAME || 'savx_store';
+    console.log(`📂 Selecting database: ${dbName}`);
+    await connection.query(`CREATE DATABASE IF NOT EXISTS \`${dbName}\`;`);
+    await connection.end();
+
+    // Now initialize the pool properly
+    pool = mysql.createPool({
+        ...dbConfig,
+        database: dbName,
+        waitForConnections: true,
+        connectionLimit: 10,
+        queueLimit: 0
+    });
+
+    console.log('✅ Connected to the MySQL database.');
+    await createTables();
+};
+
+const initSQLite = async () => {
+    try {
+        console.log('🗄️ Initializing SQLite database...');
+        const SQLiteDatabase = require('./sqlite-init');
+        const sqliteDB = new SQLiteDatabase();
+        await sqliteDB.init();
+        
+        // Override the pool with SQLite interface
+        pool = createSQLiteInterface(sqliteDB.getDatabase());
+        console.log('✅ SQLite database ready as fallback');
+    } catch (sqliteErr) {
+        console.error('❌ SQLite fallback also failed:', sqliteErr.message);
+        console.warn('⚠️  Continuing without database - some features will not work');
+    }
+};
+
+const createSQLiteInterface = (sqliteDB) => {
+    return {
+        execute: async (sql, params = []) => {
+            // Handle SELECT queries
+            if (sql.trim().toLowerCase().startsWith('select')) {
+                const rows = await new Promise((resolve, reject) => {
+                    sqliteDB.all(sql, params, (err, rows) => {
+                        if (err) reject(err);
+                        else resolve(rows);
+                    });
+                });
+                return [rows];
+            }
+            
+            // Handle INSERT, UPDATE, DELETE
+            const result = await new Promise((resolve, reject) => {
+                sqliteDB.run(sql, params, function(err) {
+                    if (err) reject(err);
+                    else resolve({ insertId: this.lastID, affectedRows: this.changes });
+                });
+            });
+            
+            // Return in MySQL format
+            return [result];
+        }
+    };
 };
 
 const createTables = async () => {
