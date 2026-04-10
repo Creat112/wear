@@ -3,6 +3,15 @@ const sendEmail = async ({ to, subject, html, preferSmtp = false }) => {
     try {
         const user = process.env.EMAIL_USER;
         const pass = process.env.EMAIL_PASS;
+        const resendKey = process.env.RESEND_API_KEY;
+        
+        console.log('Email config check:', {
+            hasUser: !!user,
+            hasPass: !!pass,
+            hasResendKey: !!resendKey,
+            preferSmtp,
+            to: to
+        });
 
         const toList = Array.isArray(to) ? to : [to];
 
