@@ -7,9 +7,11 @@ const { sendOrderEmail, sendCustomerOrderEmailWithTracking, sendOrderStatusUpdat
 router.get('/', async (req, res) => {
     const pool = getDB();
     const query = `
-        SELECT o.*, i.productId, i.quantity, i.price, i.productName, i.colorId, i.colorName
+        SELECT o.*, i.productId, i.quantity, i.price, i.productName, i.colorId, i.colorName,
+               p.image as productImage
         FROM orders o 
         LEFT JOIN order_items i ON o.id = i.orderId
+        LEFT JOIN products p ON i.productId = p.id
         ORDER BY o.date DESC
     `;
 
@@ -50,7 +52,8 @@ router.get('/', async (req, res) => {
                     price: Number(row.price),
                     name: row.productName,
                     colorId: row.colorId,
-                    colorName: row.colorName
+                    colorName: row.colorName,
+                    productImage: row.productImage
                 });
             }
         });
