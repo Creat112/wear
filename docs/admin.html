@@ -131,10 +131,14 @@
             <h2>Discount Codes</h2>
           </div>
           <div class="glass table-container" style="margin-bottom: 20px;">
-            <div style="padding: 15px; display: flex; gap: 10px;">
-                <input type="text" id="new-discount-code" placeholder="Code (e.g. SUMMER20)" style="padding: 8px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.2); background: transparent; color: white;">
-                <input type="number" id="new-discount-percent" placeholder="Percentage (e.g. 15)" style="padding: 8px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.2); background: transparent; color: white; width: 140px;">
-                <button id="btn-add-discount" class="btn-primary">Add Code</button>
+            <div style="padding: 15px; display: flex; gap: 10px; align-items: center;">
+                <input type="text" id="new-discount-code" placeholder="Code (e.g. SUMMER20)" style="padding: 8px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.2); background: transparent; color: white; flex: 1;">
+                <select id="discount-type" style="padding: 8px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.2); background: #1e293b; color: white; cursor: pointer;">
+                    <option value="percentage">% Percentage</option>
+                    <option value="fixed">EGP Fixed</option>
+                </select>
+                <input type="number" id="new-discount-percent" placeholder="Value" style="padding: 8px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.2); background: transparent; color: white; width: 100px;">
+                <button id="btn-add-discount" class="btn-primary">Add</button>
             </div>
             <div id="discounts-list"></div>
           </div>
