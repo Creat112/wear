@@ -42,6 +42,30 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (code && percent) addDiscount(code, percent);
         });
     }
+
+    // Discount type toggle
+    const discountInput = document.getElementById('new-discount-percent');
+    if (discountInput) {
+        // Add right-click context menu to toggle between percentage and fixed
+        discountInput.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            const currentType = discountInput.dataset.type || 'percentage';
+            const newType = currentType === 'percentage' ? 'fixed' : 'percentage';
+            discountInput.dataset.type = newType;
+            discountInput.placeholder = newType === 'percentage' ? 'Percentage (e.g. 15)' : 'Amount EGP (e.g. 50)';
+            discountInput.title = `Right-click to toggle. Current: ${newType}`;
+            
+            // Show feedback
+            const btn = document.getElementById('btn-add-discount');
+            const originalText = btn.textContent;
+            btn.textContent = newType === 'percentage' ? 'Add % Discount' : 'Add EGP Discount';
+            setTimeout(() => btn.textContent = originalText, 2000);
+        });
+        
+        // Set initial title
+        discountInput.title = 'Right-click to toggle between Percentage and Fixed Amount';
+        discountInput.dataset.type = 'percentage';
+    }
 });
 
 function initDashboard() {
@@ -719,7 +743,8 @@ async function loadDiscounts() {
                 <thead>
                     <tr>
                         <th>Code</th>
-                        <th>Percentage</th>
+                        <th>Type</th>
+                        <th>Value</th>
                         <th>Status</th>
                         <th>Created At</th>
                         <th>Actions</th>
@@ -729,10 +754,16 @@ async function loadDiscounts() {
         `;
 
         discounts.forEach(d => {
+            const discountType = d.discount_type || 'percentage';
+            const valueDisplay = discountType === 'percentage' 
+                ? `${d.percentage || d.discount_value || 0}%` 
+                : `EGP ${d.fixed_amount || d.discount_value || 0}`;
+            
             html += `
                 <tr style="${!d.active ? 'opacity:0.5;' : ''}">
                     <td><strong>${d.code}</strong></td>
-                    <td>${d.percentage}%</td>
+                    <td>${discountType === 'percentage' ? 'Percentage' : 'Fixed Amount'}</td>
+                    <td>${valueDisplay}</td>
                     <td><span class="badge ${d.active ? 'delivered' : 'cancelled'}">${d.active ? 'Active' : 'Inactive'}</span></td>
                     <td>${new Date(d.created_at).toLocaleDateString()}</td>
                     <td>
@@ -747,9 +778,18 @@ async function loadDiscounts() {
     } catch (err) { console.error(err); }
 }
 
-async function addDiscount(code, percentage) {
+async function addDiscount(code, value) {
     try {
-        await api.post('/discounts', { code, percentage: parseFloat(percentage) });
+        const discountInput = document.getElementById('new-discount-percent');
+        const discountType = discountInput?.dataset?.type || 'percentage';
+        
+        const payload = { 
+            code, 
+            discount_type: discountType,
+            [discountType === 'percentage' ? 'percentage' : 'fixed_amount']: parseFloat(value) 
+        };
+        
+        await api.post('/discounts', payload);
         document.getElementById('new-discount-code').value = '';
         document.getElementById('new-discount-percent').value = '';
         loadDiscounts();
