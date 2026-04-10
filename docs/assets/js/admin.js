@@ -38,33 +38,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (addDiscountBtn) {
         addDiscountBtn.addEventListener('click', () => {
             const code = document.getElementById('new-discount-code').value;
-            const percent = document.getElementById('new-discount-percent').value;
-            if (code && percent) addDiscount(code, percent);
+            const value = document.getElementById('new-discount-percent').value;
+            if (code && value) addDiscount(code, value);
         });
-    }
-
-    // Discount type toggle
-    const discountInput = document.getElementById('new-discount-percent');
-    if (discountInput) {
-        // Add right-click context menu to toggle between percentage and fixed
-        discountInput.addEventListener('contextmenu', (e) => {
-            e.preventDefault();
-            const currentType = discountInput.dataset.type || 'percentage';
-            const newType = currentType === 'percentage' ? 'fixed' : 'percentage';
-            discountInput.dataset.type = newType;
-            discountInput.placeholder = newType === 'percentage' ? 'Percentage (e.g. 15)' : 'Amount EGP (e.g. 50)';
-            discountInput.title = `Right-click to toggle. Current: ${newType}`;
-            
-            // Show feedback
-            const btn = document.getElementById('btn-add-discount');
-            const originalText = btn.textContent;
-            btn.textContent = newType === 'percentage' ? 'Add % Discount' : 'Add EGP Discount';
-            setTimeout(() => btn.textContent = originalText, 2000);
-        });
-        
-        // Set initial title
-        discountInput.title = 'Right-click to toggle between Percentage and Fixed Amount';
-        discountInput.dataset.type = 'percentage';
     }
 });
 
@@ -780,8 +756,8 @@ async function loadDiscounts() {
 
 async function addDiscount(code, value) {
     try {
-        const discountInput = document.getElementById('new-discount-percent');
-        const discountType = discountInput?.dataset?.type || 'percentage';
+        const discountTypeSelect = document.getElementById('discount-type');
+        const discountType = discountTypeSelect?.value || 'percentage';
         
         const payload = { 
             code, 
