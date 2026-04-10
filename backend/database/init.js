@@ -149,6 +149,17 @@ const createTables = async () => {
             )
         `);
 
+        // Migration: Add new columns if they don't exist (for existing tables)
+        try {
+            await pool.execute(`ALTER TABLE discount_codes ADD COLUMN IF NOT EXISTS discount_type ENUM('percentage', 'fixed') DEFAULT 'percentage'`);
+            await pool.execute(`ALTER TABLE discount_codes ADD COLUMN IF NOT EXISTS discount_value DECIMAL(10,2) DEFAULT 0`);
+            await pool.execute(`ALTER TABLE discount_codes ADD COLUMN IF NOT EXISTS fixed_amount DECIMAL(10,2) DEFAULT 0`);
+            console.log('✅ Discount codes table migrated successfully');
+        } catch (migrationErr) {
+            // Columns might already exist, ignore error
+            console.log('ℹ️  Discount codes migration check completed');
+        }
+
         // Orders Table
         await pool.execute(`
             CREATE TABLE IF NOT EXISTS orders (
