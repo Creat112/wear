@@ -29,11 +29,21 @@ router.post('/validate', async (req, res) => {
             return res.status(404).json({ error: 'Invalid or inactive discount code' });
         }
 
-        res.json({
+        const response = {
             success: true,
             code: discountRow.code,
-            percentage: discountRow.percentage
-        });
+            discount_type: discountRow.discount_type
+        };
+
+        if (discountRow.discount_type === 'percentage') {
+            response.percentage = discountRow.percentage;
+            response.displayText = `${discountRow.percentage}% off`;
+        } else if (discountRow.discount_type === 'fixed') {
+            response.fixed_amount = discountRow.fixed_amount;
+            response.displayText = `EGP ${discountRow.fixed_amount} off`;
+        }
+
+        res.json(response);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -41,18 +51,35 @@ router.post('/validate', async (req, res) => {
 
 // Create a new discount code
 router.post('/', async (req, res) => {
-    let { code, percentage } = req.body;
-    if (!code || percentage === undefined || percentage <= 0 || percentage > 100) {
-        return res.status(400).json({ error: 'Valid code and percentage (0-100) required' });
+    let { code, discount_type, percentage, fixed_amount } = req.body;
+    
+    code = code.trim().toUpperCase();
+    discount_type = discount_type || 'percentage';
+
+    // Validation
+    if (!code) {
+        return res.status(400).json({ error: 'Code is required' });
     }
 
-    code = code.trim().toUpperCase();
+    if (discount_type === 'percentage') {
+        if (percentage === undefined || percentage <= 0 || percentage > 100) {
+            return res.status(400).json({ error: 'Valid percentage (0-100) required' });
+        }
+        fixed_amount = 0;
+    } else if (discount_type === 'fixed') {
+        if (fixed_amount === undefined || fixed_amount <= 0) {
+            return res.status(400).json({ error: 'Valid fixed amount required' });
+        }
+        percentage = 0;
+    } else {
+        return res.status(400).json({ error: 'Discount type must be "percentage" or "fixed"' });
+    }
 
     const pool = getDB();
     try {
         await pool.execute(
-            "INSERT INTO discount_codes (code, percentage, active, created_at) VALUES (?, ?, 1, ?)",
-            [code, percentage, new Date().toISOString().slice(0, 19).replace('T', ' ')]
+            "INSERT INTO discount_codes (code, discount_type, percentage, fixed_amount, active, created_at) VALUES (?, ?, ?, ?, 1, ?)",
+            [code, discount_type, percentage, fixed_amount, new Date().toISOString().slice(0, 19).replace('T', ' ')]
         );
         res.status(201).json({ success: true });
     } catch (err) {
