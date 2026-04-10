@@ -66,6 +66,13 @@ window.addEventListener("DOMContentLoaded", () => {
     }
 
     let appliedDiscount = null;
+
+    // Generate unique order number using timestamp + random
+    function generateOrderNumber() {
+        const timestamp = Date.now().toString(36).toUpperCase(); // Base36 timestamp
+        const random = Math.floor(100 + Math.random() * 900); // 3-digit random
+        return `ORD-${timestamp}-${random}`;
+    }
     
     function updateTotal() {
         if (!totalSpan) return;
@@ -204,7 +211,7 @@ window.addEventListener("DOMContentLoaded", () => {
                 total: finalOrderTotal,
                 discountCode: appliedDiscount ? appliedDiscount.code : null,
                 discountAmount: discountAmount,
-                orderNumber: "ORD-" + Math.floor(100000 + Math.random() * 900000),
+                orderNumber: generateOrderNumber(),
                 date: new Date().toISOString()
             };
 
