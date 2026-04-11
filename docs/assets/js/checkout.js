@@ -106,10 +106,13 @@ window.addEventListener("DOMContentLoaded", () => {
             const userEmail = currentUser?.email || null;
 
             // Check if user already used this code locally
+            console.log('Checking discount code:', code, 'for user:', userEmail);
             if (userEmail) {
                 const usedDiscountsKey = `usedDiscounts_${userEmail}`;
                 const usedDiscounts = JSON.parse(localStorage.getItem(usedDiscountsKey) || '[]');
+                console.log('Used discounts for', userEmail, ':', usedDiscounts);
                 if (usedDiscounts.includes(code)) {
+                    console.log('Code already used:', code);
                     appliedDiscount = null;
                     promoMessage.style.color = '#ef4444';
                     promoMessage.textContent = 'You have already used this discount code';
@@ -460,9 +463,11 @@ window.addEventListener("DOMContentLoaded", () => {
                             const userEmail = document.getElementById("email").value;
                             const usedDiscountsKey = `usedDiscounts_${userEmail}`;
                             const usedDiscounts = JSON.parse(localStorage.getItem(usedDiscountsKey) || '[]');
+                            console.log('Storing used discount:', appliedDiscount.code, 'for user:', userEmail);
                             if (!usedDiscounts.includes(appliedDiscount.code)) {
                                 usedDiscounts.push(appliedDiscount.code);
                                 localStorage.setItem(usedDiscountsKey, JSON.stringify(usedDiscounts));
+                                console.log('Discount stored. Used discounts now:', usedDiscounts);
                             }
                             // Clear applied discount
                             appliedDiscount = null;
