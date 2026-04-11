@@ -646,6 +646,13 @@ window.viewOrderDetails = async function (orderId) {
             alert('Order not found');
             return;
         }
+        
+        // Debug: Log order items to see what productImage contains
+        console.log('Order items:', order.items?.map(item => ({ 
+            name: item.name, 
+            productImage: item.productImage,
+            hasImage: !!item.productImage 
+        })));
 
         const modal = document.getElementById('order-details-modal');
         const content = document.getElementById('order-details-content');
