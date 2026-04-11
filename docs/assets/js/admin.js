@@ -694,7 +694,9 @@ window.viewOrderDetails = async function (orderId) {
                                 <img src="${item.productImage ? (item.productImage.startsWith('http') || item.productImage.startsWith('/') ? item.productImage : '/' + item.productImage) : 'products/Set/Sets Savax Black.jpeg'}" alt="${item.name}" onerror="this.src='/products/Set/Sets Savax Black.jpeg'" style="width: 60px; height: 60px; object-fit: cover; border-radius: 4px; flex-shrink: 0;">
                                 <div style="flex: 1; min-width: 0;">
                                     <div style="font-weight: 500; word-wrap: break-word; overflow-wrap: break-word;">${item.name}</div>
-                                    <div style="font-size: 12px; color: #94a3b8;">${item.colorName ? `Color: ${item.colorName}` : ''} | Qty: ${item.quantity}</div>
+                                    <div style="font-size: 12px; color: #94a3b8;">
+                                        ${item.colorName ? `Color: ${item.colorName}` : '<span style="color:#f59e0b;">⚠️ No Color</span>'} | Qty: ${item.quantity}
+                                    </div>
                                 </div>
                             </div>
                             <div style="text-align: right; flex-shrink: 0; margin-left: 15px;">
