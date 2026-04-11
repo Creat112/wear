@@ -384,7 +384,10 @@ async function loadProducts() {
                     </td>
                     <td>EGP ${p.price.toFixed(2)}</td>
                     <td>${p.stock}</td>
-                    <td><span class="badge ${p.disabled ? 'cancelled' : 'delivered'}">${p.disabled ? 'Disabled' : 'Active'}</span></td>
+                    <td>
+                        <span class="badge ${p.disabled ? 'cancelled' : 'delivered'}">${p.disabled ? 'Disabled' : 'Active'}</span>
+                        ${(!p.colors || p.colors.length === 0) ? '<span style="color:#f59e0b; font-size:11px; margin-left:6px;" title="No color variants added">⚠️ No Colors</span>' : ''}
+                    </td>
                     <td>
                         <button class="btn-small" onclick="editProduct(${p.id})">Edit</button>
                         <button class="btn-small" onclick="toggleProduct(${p.id})" style="margin-left:5px;">${p.disabled ? 'Enable' : 'Disable'}</button>
