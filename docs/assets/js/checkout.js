@@ -101,8 +101,12 @@ window.addEventListener("DOMContentLoaded", () => {
             const code = promoCodeInput.value.trim().toUpperCase();
             if (!code) return;
 
+            // Get user email from localStorage
+            const currentUser = JSON.parse(localStorage.getItem('currentUser') || sessionStorage.getItem('currentUser') || '{}');
+            const userEmail = currentUser?.email || null;
+
             try {
-                const res = await api.post('/discounts/validate', { code });
+                const res = await api.post('/discounts/validate', { code, userEmail });
                 if (res.success) {
                     appliedDiscount = { 
                         code: res.code, 
@@ -162,6 +166,170 @@ window.addEventListener("DOMContentLoaded", () => {
         }
     }
 
+    // Stock Check Function
+    async function checkStockAndShowModal(items) {
+        try {
+            const stockIssues = [];
+            
+            for (const item of items) {
+                let stockCheck;
+                if (item.colorId) {
+                    // Check color variant stock
+                    stockCheck = await api.get(`/products/colors/${item.colorId}/stock`);
+                } else if (item.productId) {
+                    // Check product-level stock
+                    stockCheck = await api.get(`/products/${item.productId}/stock`);
+                }
+                
+                if (stockCheck && stockCheck.stock < item.quantity) {
+                    stockIssues.push({
+                        ...item,
+                        availableStock: stockCheck.stock,
+                        requestedQty: item.quantity
+                    });
+                }
+            }
+            
+            return stockIssues;
+        } catch (err) {
+            console.error('Stock check error:', err);
+            return [];
+        }
+    }
+
+    // Show Stock Issue Modal
+    function showStockModal(stockIssues, onAdjust, onRemove, onCancel, onRemoveAll) {
+        // Remove existing modal
+        const existingModal = document.getElementById('stock-modal');
+        if (existingModal) existingModal.remove();
+
+        const modal = document.createElement('div');
+        modal.id = 'stock-modal';
+        modal.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+            padding: 20px;
+        `;
+
+        const issue = stockIssues[0]; // Show first issue
+        const imageUrl = issue.image || issue.productImage || 'products/Set/Sets Savax Black.jpeg';
+        const imagePath = imageUrl.startsWith('http') || imageUrl.startsWith('/') ? imageUrl : '/' + imageUrl;
+
+        modal.innerHTML = `
+            <div style="
+                background: white;
+                border-radius: 16px;
+                max-width: 450px;
+                width: 100%;
+                max-height: 90vh;
+                overflow-y: auto;
+                box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            ">
+                <div style="padding: 24px;">
+                    <h2 style="margin: 0 0 16px 0; color: #dc2626; font-size: 20px;">
+                        ⚠️ Stock Issue
+                    </h2>
+                    
+                    <div style="display: flex; gap: 16px; margin-bottom: 20px;">
+                        <img src="${imagePath}" 
+                             style="width: 80px; height: 80px; object-fit: cover; border-radius: 8px;"
+                             onerror="this.src='/products/Set/Sets Savax Black.jpeg'">
+                        <div>
+                            <div style="font-weight: 600; font-size: 16px; margin-bottom: 4px;">
+                                ${issue.name || issue.productName}
+                            </div>
+                            ${issue.colorName ? `<div style="color: #666; font-size: 14px; margin-bottom: 4px;">Color: ${issue.colorName}</div>` : ''}
+                            <div style="color: #dc2626; font-size: 14px;">
+                                Only ${issue.availableStock} left in stock
+                            </div>
+                            <div style="color: #666; font-size: 13px;">
+                                You requested: ${issue.requestedQty}
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div style="display: flex; flex-direction: column; gap: 10px;">
+                        <button id="btn-adjust" style="
+                            padding: 12px 16px;
+                            background: #10b981;
+                            color: white;
+                            border: none;
+                            border-radius: 8px;
+                            font-weight: 500;
+                            cursor: pointer;
+                        ">
+                            ✓ Adjust quantity to ${issue.availableStock}
+                        </button>
+                        
+                        <button id="btn-remove" style="
+                            padding: 12px 16px;
+                            background: #f3f4f6;
+                            color: #374151;
+                            border: 1px solid #d1d5db;
+                            border-radius: 8px;
+                            font-weight: 500;
+                            cursor: pointer;
+                        ">
+                            🗑️ Remove this product
+                        </button>
+                        
+                        <button id="btn-remove-all" style="
+                            padding: 12px 16px;
+                            background: #fef3c7;
+                            color: #92400e;
+                            border: 1px solid #f59e0b;
+                            border-radius: 8px;
+                            font-weight: 500;
+                            cursor: pointer;
+                        ">
+                            🛒 Remove all products from cart
+                        </button>
+                        
+                        <button id="btn-cancel" style="
+                            padding: 12px 16px;
+                            background: white;
+                            color: #6b7280;
+                            border: 1px solid #d1d5db;
+                            border-radius: 8px;
+                            font-weight: 500;
+                            cursor: pointer;
+                        ">
+                            ✕ Cancel and go back
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(modal);
+
+        // Event listeners
+        document.getElementById('btn-adjust').onclick = () => {
+            modal.remove();
+            onAdjust(issue, issue.availableStock);
+        };
+        document.getElementById('btn-remove').onclick = () => {
+            modal.remove();
+            onRemove(issue);
+        };
+        document.getElementById('btn-remove-all').onclick = () => {
+            modal.remove();
+            onRemoveAll();
+        };
+        document.getElementById('btn-cancel').onclick = () => {
+            modal.remove();
+            onCancel();
+        };
+    }
+
     // Handle Form Submit
     if (checkoutForm) {
         let isSubmitting = false; // Prevent double submission
@@ -192,6 +360,51 @@ window.addEventListener("DOMContentLoaded", () => {
             const address = document.getElementById("address").value;
             const notes = document.getElementById("notes").value || "No notes";
             const paymentMethod = document.querySelector('input[name="paymentMethod"]:checked').value;
+
+            // Check stock before proceeding
+            const stockIssues = await checkStockAndShowModal(checkoutItems);
+            
+            if (stockIssues.length > 0) {
+                // Show modal with stock issues
+                isSubmitting = false;
+                if (submitBtn) {
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = 'Place Order';
+                }
+                
+                showStockModal(
+                    stockIssues,
+                    // onAdjust - adjust quantity to available stock
+                    (issue, newQty) => {
+                        const itemIndex = checkoutItems.findIndex(item => 
+                            (item.productId === issue.productId && item.colorId === issue.colorId)
+                        );
+                        if (itemIndex > -1) {
+                            checkoutItems[itemIndex].quantity = newQty;
+                            localStorage.setItem('checkoutItems', JSON.stringify(checkoutItems));
+                            window.location.reload(); // Reload to show updated quantities
+                        }
+                    },
+                    // onRemove - remove this product
+                    (issue) => {
+                        checkoutItems = checkoutItems.filter(item => 
+                            !(item.productId === issue.productId && item.colorId === issue.colorId)
+                        );
+                        localStorage.setItem('checkoutItems', JSON.stringify(checkoutItems));
+                        window.location.reload();
+                    },
+                    // onCancel - do nothing, user goes back to checkout
+                    () => {
+                        // Just close modal, user can edit cart manually
+                    },
+                    // onRemoveAll - clear entire cart
+                    () => {
+                        localStorage.removeItem('checkoutItems');
+                        window.location.href = 'cart.html';
+                    }
+                );
+                return;
+            }
 
             // Calculate discount based on type
             let discountAmount = 0;

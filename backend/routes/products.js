@@ -74,6 +74,38 @@ router.get('/', async (req, res) => {
     }
 });
 
+// Get stock for a specific product
+router.get('/:id/stock', async (req, res) => {
+    const pool = getDB();
+    try {
+        const [rows] = await pool.execute("SELECT stock FROM products WHERE id = ?", [req.params.id]);
+        if (rows.length === 0) {
+            return res.status(404).json({ error: 'Product not found' });
+        }
+        res.json({ stock: rows[0].stock });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Get stock for a specific color variant
+router.get('/colors/:colorId/stock', async (req, res) => {
+    const pool = getDB();
+    try {
+        const [rows] = await pool.execute("SELECT stock, colorName, productId FROM product_colors WHERE id = ?", [req.params.colorId]);
+        if (rows.length === 0) {
+            return res.status(404).json({ error: 'Color variant not found' });
+        }
+        res.json({ 
+            stock: rows[0].stock,
+            colorName: rows[0].colorName,
+            productId: rows[0].productId
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // Get single product with color variants
 router.get('/:id', async (req, res) => {
     const pool = getDB();
