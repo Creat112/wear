@@ -168,10 +168,10 @@ window.addEventListener("DOMContentLoaded", () => {
 
     // Stock Check Function
     async function checkStockAndShowModal(items) {
-        try {
-            const stockIssues = [];
-            
-            for (const item of items) {
+        const stockIssues = [];
+        
+        for (const item of items) {
+            try {
                 let stockCheck;
                 if (item.colorId) {
                     // Check color variant stock
@@ -188,13 +188,18 @@ window.addEventListener("DOMContentLoaded", () => {
                         requestedQty: item.quantity
                     });
                 }
+            } catch (err) {
+                // If API returns 404 or error, treat as out of stock (0 available)
+                console.error(`Stock check failed for item ${item.name}:`, err);
+                stockIssues.push({
+                    ...item,
+                    availableStock: 0,
+                    requestedQty: item.quantity
+                });
             }
-            
-            return stockIssues;
-        } catch (err) {
-            console.error('Stock check error:', err);
-            return [];
         }
+        
+        return stockIssues;
     }
 
     // Show Stock Issue Modal
