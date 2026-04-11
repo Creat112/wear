@@ -695,7 +695,7 @@ window.viewOrderDetails = async function (orderId) {
                                 <div style="flex: 1; min-width: 0;">
                                     <div style="font-weight: 500; word-wrap: break-word; overflow-wrap: break-word;">${item.name}</div>
                                     <div style="font-size: 12px; color: #94a3b8;">
-                                        ${item.colorName ? `Color: ${item.colorName}` : '<span style="color:#f59e0b;">⚠️ No Color</span>'} | Qty: ${item.quantity}
+                                        ${item.colorName && item.colorName.trim() ? `Color: ${item.colorName}` : '<span style="color:#f59e0b;">⚠️ No Color</span>'} | Qty: ${item.quantity}
                                     </div>
                                 </div>
                             </div>
