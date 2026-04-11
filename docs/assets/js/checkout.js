@@ -21,17 +21,19 @@ window.addEventListener("DOMContentLoaded", () => {
     const listContainer = document.getElementById("checkout-list");
     const totalSpan = document.getElementById("order-total");
     const checkoutForm = document.getElementById("checkoutForm");
-
     let total = 0;
 
-    if (checkoutItems.length === 0) {
-        if (listContainer) listContainer.innerHTML = "<p>Your cart is empty.</p>";
-        if (totalSpan) totalSpan.textContent = "EGP 0.00";
-        return;
-    }
+    function renderCheckoutItems() {
+        if (!listContainer) return;
+        listContainer.innerHTML = "";
+        total = 0;
 
-    // Render items
-    if (listContainer) {
+        if (checkoutItems.length === 0) {
+            listContainer.innerHTML = "<p>Your cart is empty.</p>";
+            if (totalSpan) totalSpan.textContent = "EGP 0.00";
+            return;
+        }
+
         checkoutItems.forEach(item => {
             const li = document.createElement("li");
             li.style.display = "flex";
@@ -63,6 +65,8 @@ window.addEventListener("DOMContentLoaded", () => {
             
             total += item.price * item.quantity;
         });
+
+        updateTotal();
     }
 
     let appliedDiscount = null;
@@ -90,7 +94,7 @@ window.addEventListener("DOMContentLoaded", () => {
         }
     }
 
-    updateTotal();
+    renderCheckoutItems();
 
     const applyPromoBtn = document.getElementById('applyPromoBtn');
     const promoCodeInput = document.getElementById('promoCode');
@@ -352,6 +356,153 @@ window.addEventListener("DOMContentLoaded", () => {
         };
     }
 
+    // Check for items missing a color selection
+    async function checkMissingColors(items) {
+        const itemsMissingColor = [];
+        
+        for (const item of items) {
+            // Only check if color is not already selected
+            if (!item.colorId) {
+                try {
+                    const product = await api.get(`/products/${item.productId || item.id}`);
+                    if (product && product.colors && product.colors.length > 0) {
+                        itemsMissingColor.push({
+                            ...item,
+                            availableColors: product.colors
+                        });
+                    }
+                } catch (err) {
+                    console.error(`Failed to fetch colors for product ${item.productId}:`, err);
+                }
+            }
+        }
+        
+        return itemsMissingColor;
+    }
+
+    // Show Color Picker Modal
+    function showColorPickerModal(item, onSelected, onCancel) {
+        // Remove existing modal
+        const existingModal = document.getElementById('color-picker-modal');
+        if (existingModal) existingModal.remove();
+
+        const modal = document.createElement('div');
+        modal.id = 'color-picker-modal';
+        modal.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10001;
+            padding: 20px;
+        `;
+
+        const imageUrl = item.image || item.productImage || 'products/Set/Sets Savax Black.jpeg';
+        const imagePath = imageUrl.startsWith('http') || imageUrl.startsWith('/') ? imageUrl : '/' + imageUrl;
+
+        let colorsHtml = item.availableColors.map(color => `
+            <div class="color-option" data-id="${color.id}" data-name="${color.colorName}" data-price="${color.price}" style="
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                padding: 12px;
+                border: 1px solid #e5e7eb;
+                border-radius: 10px;
+                cursor: pointer;
+                transition: all 0.2s;
+            " onmouseover="this.style.borderColor='#10b981'; this.style.background='#f0fdf4'" 
+               onmouseout="this.style.borderColor='#e5e7eb'; this.style.background='transparent'">
+                <div style="width: 30px; height: 30px; border-radius: 50%; background-color: ${color.colorCode || '#ccc'}; border: 1px solid #ddd;"></div>
+                <div style="flex: 1;">
+                    <div style="font-weight: 500; color: #374151;">${color.colorName}</div>
+                    <div style="font-size: 13px; color: #6b7280;">EGP ${Number(color.price).toFixed(2)}</div>
+                </div>
+                ${color.stock <= 0 ? '<span style="color: #ef4444; font-size: 12px;">Out of Stock</span>' : ''}
+            </div>
+        `).join('');
+
+        modal.innerHTML = `
+            <div style="
+                background: white;
+                border-radius: 16px;
+                max-width: 450px;
+                width: 100%;
+                max-height: 90vh;
+                overflow-y: auto;
+                box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            ">
+                <div style="padding: 24px;">
+                    <h2 style="margin: 0 0 8px 0; color: #1f2937; font-size: 20px;">
+                        🎨 Choose a Color
+                    </h2>
+                    <p style="color: #6b7280; font-size: 14px; margin-bottom: 20px;">
+                        Please select a color for <strong>${item.name || item.productName}</strong> to proceed.
+                    </p>
+                    
+                    <div style="display: flex; gap: 16px; margin-bottom: 24px; padding: 12px; background: #f9fafb; border-radius: 12px;">
+                        <img src="${imagePath}" 
+                             style="width: 60px; height: 60px; object-fit: cover; border-radius: 8px;"
+                             onerror="this.src='/products/Set/Sets Savax Black.jpeg'">
+                        <div>
+                            <div style="font-weight: 600; font-size: 15px; color: #374151;">
+                                ${item.name || item.productName}
+                            </div>
+                            <div style="color: #6b7280; font-size: 13px;">Quantity: ${item.quantity}</div>
+                        </div>
+                    </div>
+                    
+                    <div id="color-options-container" style="display: flex; flex-direction: column; gap: 10px; margin-bottom: 24px;">
+                        ${colorsHtml}
+                    </div>
+                    
+                    <button id="btn-cancel-picker" style="
+                        width: 100%;
+                        padding: 12px;
+                        background: white;
+                        color: #6b7280;
+                        border: 1px solid #d1d5db;
+                        border-radius: 8px;
+                        font-weight: 500;
+                        cursor: pointer;
+                    ">
+                        ✕ Cancel
+                    </button>
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(modal);
+
+        // Selection logic
+        const options = modal.querySelectorAll('.color-option');
+        options.forEach(opt => {
+            opt.onclick = () => {
+                const id = opt.dataset.id;
+                const name = opt.dataset.name;
+                const price = opt.dataset.price;
+                const color = item.availableColors.find(c => c.id == id);
+                
+                if (color && color.stock <= 0) {
+                    alert('This color is out of stock. Please choose another one.');
+                    return;
+                }
+                
+                modal.remove();
+                onSelected({ id, name, price });
+            };
+        });
+
+        document.getElementById('btn-cancel-picker').onclick = () => {
+            modal.remove();
+            onCancel();
+        };
+    }
+
     // Handle Form Submit
     if (checkoutForm) {
         let isSubmitting = false; // Prevent double submission
@@ -382,6 +533,42 @@ window.addEventListener("DOMContentLoaded", () => {
             const address = document.getElementById("address").value;
             const notes = document.getElementById("notes").value || "No notes";
             const paymentMethod = document.querySelector('input[name="paymentMethod"]:checked').value;
+
+            // Check for missing colors before proceeding
+            const itemsMissingColor = await checkMissingColors(checkoutItems);
+            if (itemsMissingColor.length > 0) {
+                isSubmitting = false;
+                if (submitBtn) {
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = 'Place Order';
+                }
+                
+                const item = itemsMissingColor[0]; // Propmt for the first missing color item
+                showColorPickerModal(
+                    item,
+                    (selected) => {
+                        // Find item in original checkoutItems and update it
+                        const idx = checkoutItems.findIndex(i => (i.productId || i.id) === (item.productId || item.id) && !i.colorId);
+                        if (idx > -1) {
+                            checkoutItems[idx].colorId = selected.id;
+                            checkoutItems[idx].colorName = selected.name;
+                            checkoutItems[idx].price = Number(selected.price);
+                            localStorage.setItem('checkoutItems', JSON.stringify(checkoutItems));
+                            
+                            // Re-render UI and total
+                            renderCheckoutItems();
+                            
+                            // Reset submission state and trigger submit again to proceed
+                            isSubmitting = false;
+                            checkoutForm.dispatchEvent(new Event('submit'));
+                        }
+                    },
+                    () => {
+                        // User cancelled color selection, do nothing
+                    }
+                );
+                return;
+            }
 
             // Check stock before proceeding
             const stockIssues = await checkStockAndShowModal(checkoutItems);
