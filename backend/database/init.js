@@ -248,18 +248,23 @@ const seedAdmin = async () => {
     try {
         const [rows] = await pool.execute("SELECT count(*) as count FROM users WHERE role = 'admin'");
         if (rows[0].count === 0) {
-            console.log("Seeding admin user...");
-            const hashedPassword = await hashPassword('admin123');
+            // Get admin credentials from environment variables or use defaults
+            const adminEmail = (process.env.ADMIN_EMAIL || 'admin@SAVX.com').trim();
+            const adminPassword = (process.env.ADMIN_PASSWORD || 'admin123').trim();
+            const adminName = (process.env.ADMIN_NAME || 'Admin User').trim();
+            
+            console.log(`Seeding admin user: ${adminEmail}`);
+            const hashedPassword = await hashPassword(adminPassword);
             const createdAt = new Date().toISOString().slice(0, 19).replace('T', ' ');
             
             await pool.execute(
                 "INSERT INTO users (name, email, password, role, createdAt) VALUES (?, ?, ?, ?, ?)",
-                ['Admin User', 'admin@SAVX.com', hashedPassword, 'admin', createdAt]
+                [adminName, adminEmail, hashedPassword, 'admin', createdAt]
             );
-            console.log("Admin user seeded successfully with hashed password");
+            console.log(`Admin user seeded successfully: ${adminEmail}`);
         }
     } catch (err) {
-        console.error(err.message);
+        console.error('Error seeding admin:', err.message);
     }
 };
 
