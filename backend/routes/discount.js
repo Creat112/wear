@@ -15,7 +15,7 @@ router.get('/', async (req, res) => {
 
 // Validate a discount code (Checkout)
 router.post('/validate', async (req, res) => {
-    const { code, userEmail } = req.body;
+    const { code, userEmail, userPhone } = req.body;
     if (!code) {
         return res.status(400).json({ error: 'Code is required' });
     }
@@ -29,12 +29,23 @@ router.post('/validate', async (req, res) => {
             return res.status(404).json({ error: 'Invalid or inactive discount code' });
         }
 
-        // Check if user has already used this discount code (by email)
-        if (userEmail) {
-            const [usedRows] = await pool.execute(
-                "SELECT COUNT(*) as count FROM orders WHERE customerEmail = ? AND discount_code = ?",
-                [userEmail, code]
-            );
+        // Check if user has already used this discount code (by email or phone)
+        if (userEmail || userPhone) {
+            let usedQuery = "SELECT COUNT(*) as count FROM orders WHERE discount_code = ? AND (";
+            let params = [code];
+            
+            if (userEmail && userPhone) {
+                usedQuery += "customerEmail = ? OR customerPhone = ?)";
+                params.push(userEmail, userPhone);
+            } else if (userEmail) {
+                usedQuery += "customerEmail = ?)";
+                params.push(userEmail);
+            } else {
+                usedQuery += "customerPhone = ?)";
+                params.push(userPhone);
+            }
+
+            const [usedRows] = await pool.execute(usedQuery, params);
             if (usedRows[0].count > 0) {
                 return res.status(403).json({ error: 'You have already used this discount code' });
             }

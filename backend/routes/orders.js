@@ -111,6 +111,23 @@ router.post('/', async (req, res) => {
             }
         }
 
+        if (discountCode) {
+            const [discountRows] = await connection.execute("SELECT * FROM discount_codes WHERE code = ? AND active = 1", [discountCode]);
+            if (discountRows.length === 0) {
+                await connection.rollback();
+                return res.status(400).json({ error: 'Invalid or inactive discount code' });
+            }
+
+            const [usedRows] = await connection.execute(
+                "SELECT COUNT(*) as count FROM orders WHERE discount_code = ? AND (customerEmail = ? OR customerPhone = ?)",
+                [discountCode, customer.email, customer.phone]
+            );
+            if (usedRows[0].count > 0) {
+                await connection.rollback();
+                return res.status(400).json({ error: 'Discount code already used by this customer' });
+            }
+        }
+
         if (stockErrors.length > 0) {
             await connection.rollback();
             return res.status(400).json({ error: 'Stock validation failed', details: stockErrors });

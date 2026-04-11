@@ -101,12 +101,13 @@ window.addEventListener("DOMContentLoaded", () => {
             const code = promoCodeInput.value.trim().toUpperCase();
             if (!code) return;
 
-            // Get user email from localStorage
+            // Get user info from form or localStorage
             const currentUser = JSON.parse(localStorage.getItem('currentUser') || sessionStorage.getItem('currentUser') || '{}');
-            const userEmail = currentUser?.email || null;
+            const userEmail = document.getElementById('email')?.value.trim() || currentUser?.email || null;
+            const userPhone = document.getElementById('phone')?.value.trim() || currentUser?.phone || null;
 
             // Check if user already used this code locally
-            console.log('Checking discount code:', code, 'for user:', userEmail);
+            console.log('Checking discount code:', code, 'for user email:', userEmail, 'phone:', userPhone);
             if (userEmail) {
                 const usedDiscountsKey = `usedDiscounts_${userEmail}`;
                 const usedDiscounts = JSON.parse(localStorage.getItem(usedDiscountsKey) || '[]');
@@ -122,7 +123,7 @@ window.addEventListener("DOMContentLoaded", () => {
             }
 
             try {
-                const res = await api.post('/discounts/validate', { code, userEmail });
+                const res = await api.post('/discounts/validate', { code, userEmail, userPhone });
                 if (res.success) {
                     appliedDiscount = { 
                         code: res.code, 
