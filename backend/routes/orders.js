@@ -82,20 +82,32 @@ router.post('/', async (req, res) => {
         for (let i = 0; i < items.length; i++) {
             const item = items[i];
             const colorId = item.colorId;
+            const productId = item.productId;
             const qty = Number(item.quantity) || 0;
+            const itemName = item.name || item.productName || `Item ${i + 1}`;
 
-            if (!colorId) {
-                stockErrors.push(`Item ${i + 1} (${item.name}) is missing color selection`);
-                continue;
-            }
+            if (colorId) {
+                // Check color variant stock
+                const [colorRows] = await connection.execute("SELECT stock FROM product_colors WHERE id = ?", [colorId]);
+                const colorRow = colorRows[0];
 
-            const [colorRows] = await connection.execute("SELECT stock FROM product_colors WHERE id = ?", [colorId]);
-            const colorRow = colorRows[0];
+                if (!colorRow) {
+                    stockErrors.push(`Color variant not found for ${itemName}`);
+                } else if (colorRow.stock < qty) {
+                    stockErrors.push(`Insufficient stock for ${itemName}. Available: ${colorRow.stock}, Requested: ${qty}`);
+                }
+            } else if (productId) {
+                // Check product-level stock (for products without color variants)
+                const [productRows] = await connection.execute("SELECT stock FROM products WHERE id = ?", [productId]);
+                const productRow = productRows[0];
 
-            if (!colorRow) {
-                stockErrors.push(`Color variant not found for ${item.name}`);
-            } else if (colorRow.stock < qty) {
-                stockErrors.push(`Insufficient stock for ${item.name}. Available: ${colorRow.stock}, Requested: ${qty}`);
+                if (!productRow) {
+                    stockErrors.push(`Product not found: ${itemName}`);
+                } else if (productRow.stock < qty) {
+                    stockErrors.push(`Insufficient stock for ${itemName}. Available: ${productRow.stock}, Requested: ${qty}`);
+                }
+            } else {
+                stockErrors.push(`${itemName} is missing product and color information`);
             }
         }
 
