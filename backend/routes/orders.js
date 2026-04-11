@@ -145,9 +145,24 @@ router.post('/', async (req, res) => {
         
         console.log('Order and stock updates committed successfully.');
         
-        // Asynchronously send emails
-        sendOrderEmail({ customer, shipping, items, total, orderNumber, date, paymentMethod }).catch(console.error);
-        sendCustomerOrderEmailWithTracking({ customer, shipping, items, total, orderNumber, date, paymentMethod }).catch(console.error);
+        // Asynchronously send emails with better error handling
+        (async () => {
+            try {
+                console.log('Sending admin order email...');
+                const adminEmailResult = await sendOrderEmail({ customer, shipping, items, total, orderNumber, date, paymentMethod });
+                console.log('Admin email result:', adminEmailResult);
+            } catch (emailErr) {
+                console.error('Admin email failed:', emailErr);
+            }
+            
+            try {
+                console.log('Sending customer order email...');
+                const customerEmailResult = await sendCustomerOrderEmailWithTracking({ customer, shipping, items, total, orderNumber, date, paymentMethod });
+                console.log('Customer email result:', customerEmailResult);
+            } catch (emailErr) {
+                console.error('Customer email failed:', emailErr);
+            }
+        })();
 
         res.status(201).json({ success: true, orderId });
     } catch (err) {
