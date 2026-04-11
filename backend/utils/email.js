@@ -1,15 +1,20 @@
 const nodemailer = require('nodemailer');
 const sendEmail = async ({ to, subject, html, preferSmtp = false }) => {
     try {
-        const user = process.env.EMAIL_USER;
-        const pass = process.env.EMAIL_PASS;
-        const resendKey = process.env.RESEND_API_KEY;
+        // Trim env vars to handle accidental spaces
+        const user = (process.env.EMAIL_USER || '').trim();
+        const pass = (process.env.EMAIL_PASS || '').trim();
+        const resendKey = (process.env.RESEND_API_KEY || '').trim();
+        const emailFrom = (process.env.EMAIL_FROM || '').trim();
         
-        console.log('Email config check:', {
-            hasUser: !!user,
-            hasPass: !!pass,
-            hasResendKey: !!resendKey,
-            preferSmtp,
+        // Debug: Show first/last chars to detect hidden issues
+        console.log('Email config debug:', {
+            userLength: user.length,
+            passLength: pass.length,
+            resendKeyLength: resendKey.length,
+            emailFromLength: emailFrom.length,
+            userStart: user ? user.substring(0, 3) + '***' : 'EMPTY',
+            userEnd: user ? '***' + user.slice(-3) : 'EMPTY',
             to: to
         });
 
@@ -24,7 +29,7 @@ const sendEmail = async ({ to, subject, html, preferSmtp = false }) => {
                 }
             });
 
-            const fromAddress = process.env.EMAIL_FROM || user;
+            const fromAddress = emailFrom || user;
             const info = await transporter.sendMail({
                 from: fromAddress,
                 to: toList.join(','),
@@ -36,10 +41,10 @@ const sendEmail = async ({ to, subject, html, preferSmtp = false }) => {
             return true;
         }
 
-        if (process.env.RESEND_API_KEY) {
+        if (resendKey) {
             const { Resend } = require('resend');
-            const resendClient = new Resend(process.env.RESEND_API_KEY);
-            const fromAddress = process.env.EMAIL_FROM || 'SAVX Store <onboarding@resend.dev>';
+            const resendClient = new Resend(resendKey);
+            const fromAddress = emailFrom || 'SAVX Store <onboarding@resend.dev>';
 
             const { data, error } = await resendClient.emails.send({
                 from: fromAddress,
@@ -71,7 +76,7 @@ const sendEmail = async ({ to, subject, html, preferSmtp = false }) => {
             }
         });
 
-        const fromAddress = process.env.EMAIL_FROM || user;
+        const fromAddress = emailFrom || user;
         const info = await transporter.sendMail({
             from: fromAddress,
             to: toList.join(','),
@@ -89,10 +94,16 @@ const sendEmail = async ({ to, subject, html, preferSmtp = false }) => {
 
 const sendCustomerOrderEmailWithTracking = async (orderData) => {
     try {
+        // Trim env vars to handle accidental spaces
+        const customerResendApi = (process.env.CUSTOMER_RESEND_API || '').trim();
+        const emailUser = (process.env.EMAIL_USER || '').trim();
+        const emailPass = (process.env.EMAIL_PASS || '').trim();
+        const emailFrom = (process.env.EMAIL_FROM || '').trim();
+        
         console.log('=== CUSTOMER ORDER EMAIL WITH TRACKING START ===');
         console.log('Customer Email:', orderData?.customer?.email);
-        console.log('Environment check - CUSTOMER_RESEND_API:', process.env.CUSTOMER_RESEND_API ? 'SET' : 'NOT SET');
-        console.log('Environment check - EMAIL_USER:', process.env.EMAIL_USER ? 'SET' : 'NOT SET');
+        console.log('Environment check - CUSTOMER_RESEND_API:', customerResendApi ? 'SET' : 'NOT SET', 'Length:', customerResendApi.length);
+        console.log('Environment check - EMAIL_USER:', emailUser ? 'SET' : 'NOT SET', 'Length:', emailUser.length);
 
         const customerEmail = orderData?.customer?.email;
         if (!customerEmail) {
@@ -100,7 +111,7 @@ const sendCustomerOrderEmailWithTracking = async (orderData) => {
             return false;
         }
 
-        if (!process.env.CUSTOMER_RESEND_API && !process.env.EMAIL_USER) {
+        if (!customerResendApi && !emailUser) {
             console.error('No email service configured. Set CUSTOMER_RESEND_API or EMAIL_USER/EMAIL_PASS');
             return false;
         }
@@ -133,8 +144,8 @@ const sendCustomerOrderEmailWithTracking = async (orderData) => {
 
         // Use customer-specific Resend API
         const { Resend } = require('resend');
-        const resendClient = new Resend(process.env.CUSTOMER_RESEND_API);
-        const fromAddress = process.env.EMAIL_FROM || 'SAVX Store <onboarding@resend.dev>';
+        const resendClient = new Resend(customerResendApi);
+        const fromAddress = emailFrom || 'SAVX Store <onboarding@resend.dev>';
 
         const { data, error } = await resendClient.emails.send({
             from: fromAddress,
@@ -234,14 +245,21 @@ const buildOrderEmailHtml = (orderData, headingText) => {
 
 const sendOrderEmail = async (orderData) => {
     try {
+        const emailUser = (process.env.EMAIL_USER || '').trim();
+        
         console.log('=== EMAIL SENDING START ===');
-        console.log('Email user:', process.env.EMAIL_USER);
+        console.log('Email user:', emailUser || 'NOT SET');
         console.log('Order data:', JSON.stringify(orderData, null, 2));
+
+        if (!emailUser) {
+            console.error('EMAIL_USER not configured');
+            return false;
+        }
 
         const htmlContent = buildOrderEmailHtml(orderData, 'New Order Received!');
 
         const result = await sendEmail({
-            to: process.env.EMAIL_USER,
+            to: emailUser,
             subject: `New Order Received: ${orderData.orderNumber}`,
             html: htmlContent,
             preferSmtp: true
