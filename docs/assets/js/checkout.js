@@ -479,9 +479,18 @@ window.addEventListener("DOMContentLoaded", () => {
                             console.log('No applied discount to store');
                         }
                         
+                        // Verify discount was stored
+                        const verifyKey = `usedDiscounts_${document.getElementById("email").value}`;
+                        const verifyData = localStorage.getItem(verifyKey);
+                        console.log('Verification - localStorage key:', verifyKey, 'value:', verifyData);
+                        
                         sessionStorage.setItem("currentOrder", JSON.stringify(orderData));
                         localStorage.removeItem("checkoutItems");
-                        window.location.href = "thank-you.html";
+                        
+                        // Small delay to ensure localStorage is persisted
+                        setTimeout(() => {
+                            window.location.href = "thank-you.html";
+                        }, 100);
                     } else {
                         alert('Failed to place order: ' + (result.error || 'Unknown error'));
                         isSubmitting = false; // Reset on error
