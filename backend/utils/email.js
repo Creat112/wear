@@ -266,7 +266,8 @@ const sendOrderEmail = async (orderData) => {
         const result = await sendEmail({
             to: emailUser,
             subject: `New Order Received: ${orderData.orderNumber}`,
-            html: htmlContent
+            html: htmlContent,
+            preferSmtp: true
         });
 
         if (!result) {
