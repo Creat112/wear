@@ -105,6 +105,19 @@ window.addEventListener("DOMContentLoaded", () => {
             const currentUser = JSON.parse(localStorage.getItem('currentUser') || sessionStorage.getItem('currentUser') || '{}');
             const userEmail = currentUser?.email || null;
 
+            // Check if user already used this code locally
+            if (userEmail) {
+                const usedDiscountsKey = `usedDiscounts_${userEmail}`;
+                const usedDiscounts = JSON.parse(localStorage.getItem(usedDiscountsKey) || '[]');
+                if (usedDiscounts.includes(code)) {
+                    appliedDiscount = null;
+                    promoMessage.style.color = '#ef4444';
+                    promoMessage.textContent = 'You have already used this discount code';
+                    updateTotal();
+                    return;
+                }
+            }
+
             try {
                 const res = await api.post('/discounts/validate', { code, userEmail });
                 if (res.success) {
@@ -442,6 +455,20 @@ window.addEventListener("DOMContentLoaded", () => {
                     const result = await api.post('/orders', orderData);
 
                     if (result.success || result.orderId) {
+                        // Store used discount code to prevent reuse
+                        if (appliedDiscount && appliedDiscount.code) {
+                            const userEmail = document.getElementById("email").value;
+                            const usedDiscountsKey = `usedDiscounts_${userEmail}`;
+                            const usedDiscounts = JSON.parse(localStorage.getItem(usedDiscountsKey) || '[]');
+                            if (!usedDiscounts.includes(appliedDiscount.code)) {
+                                usedDiscounts.push(appliedDiscount.code);
+                                localStorage.setItem(usedDiscountsKey, JSON.stringify(usedDiscounts));
+                            }
+                            // Clear applied discount
+                            appliedDiscount = null;
+                            localStorage.removeItem('appliedDiscount');
+                        }
+                        
                         sessionStorage.setItem("currentOrder", JSON.stringify(orderData));
                         localStorage.removeItem("checkoutItems");
                         window.location.href = "thank-you.html";
@@ -498,6 +525,20 @@ window.addEventListener("DOMContentLoaded", () => {
 
             // Create payment session
             const session = await paymob.createPaymentSession(paymobOrderData);
+            
+            // Store used discount code to prevent reuse (before redirect)
+            if (appliedDiscount && appliedDiscount.code) {
+                const userEmail = orderData.customer.email;
+                const usedDiscountsKey = `usedDiscounts_${userEmail}`;
+                const usedDiscounts = JSON.parse(localStorage.getItem(usedDiscountsKey) || '[]');
+                if (!usedDiscounts.includes(appliedDiscount.code)) {
+                    usedDiscounts.push(appliedDiscount.code);
+                    localStorage.setItem(usedDiscountsKey, JSON.stringify(usedDiscounts));
+                }
+                // Clear applied discount
+                appliedDiscount = null;
+                localStorage.removeItem('appliedDiscount');
+            }
             
             // Store order info for result page
             sessionStorage.setItem("currentOrder", JSON.stringify(orderData));
