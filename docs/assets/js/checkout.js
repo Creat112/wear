@@ -455,9 +455,12 @@ window.addEventListener("DOMContentLoaded", () => {
                     await handlePaymobPayment(orderData);
                 } else {
                     // Handle other payment methods (existing logic)
+                    console.log('About to place order. appliedDiscount:', appliedDiscount);
                     const result = await api.post('/orders', orderData);
+                    console.log('Order result:', result);
 
                     if (result.success || result.orderId) {
+                        console.log('Order success! Storing discount if exists...');
                         // Store used discount code to prevent reuse
                         if (appliedDiscount && appliedDiscount.code) {
                             const userEmail = document.getElementById("email").value;
@@ -472,6 +475,8 @@ window.addEventListener("DOMContentLoaded", () => {
                             // Clear applied discount
                             appliedDiscount = null;
                             localStorage.removeItem('appliedDiscount');
+                        } else {
+                            console.log('No applied discount to store');
                         }
                         
                         sessionStorage.setItem("currentOrder", JSON.stringify(orderData));
