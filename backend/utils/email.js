@@ -142,9 +142,14 @@ const sendCustomerOrderEmailWithTracking = async (orderData) => {
             </div>
         `;
 
-        // Use customer-specific Resend API
+        // Use customer-specific Resend API, fallback to main RESEND_API_KEY
+        const resendKey = customerResendApi || (process.env.RESEND_API_KEY || '').trim();
+        if (!resendKey) {
+            console.error('No Resend API key available for customer email. Set CUSTOMER_RESEND_API or RESEND_API_KEY.');
+            return false;
+        }
         const { Resend } = require('resend');
-        const resendClient = new Resend(customerResendApi);
+        const resendClient = new Resend(resendKey);
         const fromAddress = emailFrom || 'SAVX Store <onboarding@resend.dev>';
 
         const { data, error } = await resendClient.emails.send({
@@ -261,8 +266,7 @@ const sendOrderEmail = async (orderData) => {
         const result = await sendEmail({
             to: emailUser,
             subject: `New Order Received: ${orderData.orderNumber}`,
-            html: htmlContent,
-            preferSmtp: true
+            html: htmlContent
         });
 
         if (!result) {
