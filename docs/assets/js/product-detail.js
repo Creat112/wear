@@ -128,9 +128,9 @@ function renderProductDetail(product) {
                 ` : ''}
 
                 ${product.sizes && product.sizes.length > 0 ? `
-                    <div class="size-selection">
-                        <h3>Select Size:</h3>
-                        <div class="size-options" id="size-options">
+                    <div class="size-selection" style="margin: 20px 0;">
+                        <h3 style="margin-bottom: 12px; font-size: 1rem;">Select Size:</h3>
+                        <div class="size-options" id="size-options" style="display: flex; flex-wrap: wrap; gap: 10px;">
                             ${product.sizes.map(size => `
                                 <button 
                                     class="size-btn ${size.id === selectedSize.id ? 'active' : ''}" 
@@ -138,14 +138,30 @@ function renderProductDetail(product) {
                                     data-size-name="${size.sizeName}"
                                     data-size-code="${size.sizeCode}"
                                     data-price="${size.price}"
-                                    data-stock="${size.stock}"
                                     title="${size.sizeName}"
+                                    style="
+                                        min-width: 60px;
+                                        padding: 12px 20px;
+                                        border: 2px solid ${size.id === selectedSize.id ? '#8b5cf6' : '#e5e7eb'};
+                                        border-radius: 8px;
+                                        background: ${size.id === selectedSize.id ? 'linear-gradient(135deg, #8b5cf6, #7c3aed)' : '#ffffff'};
+                                        color: ${size.id === selectedSize.id ? '#ffffff' : '#374151'};
+                                        font-weight: 600;
+                                        font-size: 0.95rem;
+                                        cursor: pointer;
+                                        transition: all 0.2s ease;
+                                        box-shadow: ${size.id === selectedSize.id ? '0 4px 12px rgba(139, 92, 246, 0.3)' : '0 2px 4px rgba(0,0,0,0.05)'};
+                                    "
+                                    onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 12px rgba(0,0,0,0.15)';"
+                                    onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='${size.id === selectedSize.id ? '0 4px 12px rgba(139, 92, 246, 0.3)' : '0 2px 4px rgba(0,0,0,0.05)'}';"
                                 >
                                     <span class="size-code">${size.sizeCode || size.sizeName}</span>
                                 </button>
                             `).join('')}
                         </div>
-                        <p class="selected-size-name">Selected: <strong id="selected-size-display">${selectedSize.sizeName}</strong></p>
+                        <p class="selected-size-name" style="margin-top: 12px; font-size: 0.9rem; color: #6b7280;">
+                            Selected: <strong id="selected-size-display" style="color: #8b5cf6;">${selectedSize.sizeName}</strong>
+                        </p>
                     </div>
                 ` : ''}
 
@@ -209,7 +225,7 @@ function attachEventListeners() {
         });
     });
 
-    // Size selection
+    // Size selection - only for display, doesn't affect stock/quantity
     const sizeBtns = document.querySelectorAll('.size-btn');
     sizeBtns.forEach(btn => {
         btn.addEventListener('click', (e) => {
@@ -217,15 +233,23 @@ function attachEventListeners() {
             const sizeName = e.currentTarget.dataset.sizeName;
             const sizeCode = e.currentTarget.dataset.sizeCode;
             const price = parseFloat(e.currentTarget.dataset.price);
-            const stock = parseInt(e.currentTarget.dataset.stock);
 
-            selectedSize = { id: sizeId, sizeName, sizeCode, price, stock };
+            selectedSize = { id: sizeId, sizeName, sizeCode, price };
 
-            // Update UI
-            sizeBtns.forEach(b => b.classList.remove('active'));
+            // Update UI styling for active state
+            sizeBtns.forEach(b => {
+                b.classList.remove('active');
+                b.style.borderColor = '#e5e7eb';
+                b.style.background = '#ffffff';
+                b.style.color = '#374151';
+                b.style.boxShadow = '0 2px 4px rgba(0,0,0,0.05)';
+            });
             e.currentTarget.classList.add('active');
+            e.currentTarget.style.borderColor = '#8b5cf6';
+            e.currentTarget.style.background = 'linear-gradient(135deg, #8b5cf6, #7c3aed)';
+            e.currentTarget.style.color = '#ffffff';
+            e.currentTarget.style.boxShadow = '0 4px 12px rgba(139, 92, 246, 0.3)';
 
-            updatePriceAndStock(price, stock);
             document.getElementById('selected-size-display').textContent = sizeName;
         });
     });
