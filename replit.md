@@ -19,5 +19,9 @@
 - The admin account is synchronized from `ADMIN_EMAIL`, `ADMIN_PASSWORD`, and `ADMIN_NAME` during database initialization.
 - Changing these secrets updates the configured admin user the next time the server starts.
 
+## Frontend Footer
+- Public storefront pages use `docs/footer.html` loaded by `docs/assets/js/footer.js`.
+- The footer social section contains only Instagram and links to `https://www.instagram.com/_savx_1/`.
+
 ## User Preferences
 - Preserve the imported project structure and dependencies; do not rewrite from scratch.
