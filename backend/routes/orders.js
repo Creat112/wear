@@ -7,7 +7,7 @@ const { sendOrderEmail, sendCustomerOrderEmailWithTracking, sendOrderStatusUpdat
 router.get('/', async (req, res) => {
     const pool = getDB();
     const query = `
-        SELECT o.*, i.productId, i.quantity, i.price, i.productName, i.colorId, i.colorName,
+        SELECT o.*, i.productId, i.quantity, i.price, i.productName, i.colorId, i.colorName, i.sizeId, i.sizeName,
                p.image as productImage
         FROM orders o 
         LEFT JOIN order_items i ON o.id = i.orderId
@@ -53,6 +53,8 @@ router.get('/', async (req, res) => {
                     name: row.productName,
                     colorId: row.colorId,
                     colorName: row.colorName,
+                    sizeId: row.sizeId,
+                    sizeName: row.sizeName,
                     productImage: row.productImage
                 });
             }
@@ -150,22 +152,38 @@ router.post('/', async (req, res) => {
         for (const item of items) {
             const productId = Number(item.productId || item.id);
             const qty = Number(item.quantity) || 0;
-            const price = Number(item.price || item.colorPrice) || 0;
+            const price = Number(item.price || item.colorPrice || item.sizePrice) || 0;
             const name = item.name || item.productName || 'Unknown Product';
             const colorId = item.colorId;
             const colorName = item.colorName || '';
+            const sizeId = item.sizeId;
+            const sizeName = item.sizeName || '';
 
             await connection.execute(
-                `INSERT INTO order_items (orderId, productId, quantity, price, productName, colorId, colorName) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-                [orderId, productId, qty, price, name, colorId, colorName]
+                `INSERT INTO order_items (orderId, productId, quantity, price, productName, colorId, colorName, sizeId, sizeName) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [orderId, productId, qty, price, name, colorId, colorName, sizeId, sizeName]
             );
 
-            const [updateRes] = await connection.execute(
-                `UPDATE product_colors SET stock = stock - ? WHERE id = ? AND stock >= ?`,
-                [qty, colorId, qty]
-            );
-            if (updateRes.affectedRows === 0) {
-                console.warn(`Stock update failed for color ${colorId} - possible race condition`);
+            // Update color stock if color selected
+            if (colorId) {
+                const [colorUpdateRes] = await connection.execute(
+                    `UPDATE product_colors SET stock = stock - ? WHERE id = ? AND stock >= ?`,
+                    [qty, colorId, qty]
+                );
+                if (colorUpdateRes.affectedRows === 0) {
+                    console.warn(`Stock update failed for color ${colorId} - possible race condition`);
+                }
+            }
+
+            // Update size stock if size selected
+            if (sizeId) {
+                const [sizeUpdateRes] = await connection.execute(
+                    `UPDATE product_sizes SET stock = stock - ? WHERE id = ? AND stock >= ?`,
+                    [qty, sizeId, qty]
+                );
+                if (sizeUpdateRes.affectedRows === 0) {
+                    console.warn(`Stock update failed for size ${sizeId} - possible race condition`);
+                }
             }
         }
 

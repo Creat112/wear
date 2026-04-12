@@ -21,7 +21,15 @@ function normalizeColor(c) {
     };
 }
 
-// Get all products with color variants
+function normalizeSize(s) {
+    return {
+        ...s,
+        price: s.price != null ? Number(s.price) : 0,
+        stock: s.stock != null ? Number(s.stock) : 0,
+    };
+}
+
+// Get all products with color and size variants
 router.get('/', async (req, res) => {
     const { category, includeDisabled } = req.query;
     const pool = getDB();
@@ -53,6 +61,11 @@ router.get('/', async (req, res) => {
             productIds
         );
 
+        const [sizes] = await pool.execute(
+            `SELECT * FROM product_sizes WHERE productId IN (${placeholders})`,
+            productIds
+        );
+
         const colorsByProduct = {};
         colors.forEach(color => {
             if (!colorsByProduct[color.productId]) {
@@ -61,14 +74,23 @@ router.get('/', async (req, res) => {
             colorsByProduct[color.productId].push(normalizeColor(color));
         });
 
-        const productsWithColors = products.map(product => {
+        const sizesByProduct = {};
+        sizes.forEach(size => {
+            if (!sizesByProduct[size.productId]) {
+                sizesByProduct[size.productId] = [];
+            }
+            sizesByProduct[size.productId].push(normalizeSize(size));
+        });
+
+        const productsWithVariants = products.map(product => {
             return {
                 ...normalizeProduct(product),
-                colors: colorsByProduct[product.id] || []
+                colors: colorsByProduct[product.id] || [],
+                sizes: sizesByProduct[product.id] || []
             };
         });
 
-        res.json(productsWithColors);
+        res.json(productsWithVariants);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -106,7 +128,7 @@ router.get('/:id/stock', async (req, res) => {
     }
 });
 
-// Get single product with color variants
+// Get single product with color and size variants
 router.get('/:id', async (req, res) => {
     const pool = getDB();
     try {
@@ -118,19 +140,21 @@ router.get('/:id', async (req, res) => {
         }
 
         const [colors] = await pool.execute("SELECT * FROM product_colors WHERE productId = ?", [req.params.id]);
+        const [sizes] = await pool.execute("SELECT * FROM product_sizes WHERE productId = ?", [req.params.id]);
         
         res.json({
             ...normalizeProduct(product),
-            colors: (colors || []).map(normalizeColor)
+            colors: (colors || []).map(normalizeColor),
+            sizes: (sizes || []).map(normalizeSize)
         });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 
-// Create Product with color variants
+// Create Product with color and size variants
 router.post('/', async (req, res) => {
-    const { name, price, description, category, image, stock, discount, originalPrice, colors } = req.body;
+    const { name, price, description, category, image, stock, discount, originalPrice, colors, sizes } = req.body;
     const pool = getDB();
 
     let finalOriginalPrice = originalPrice;
@@ -166,6 +190,15 @@ router.post('/', async (req, res) => {
             }
         }
 
+        if (sizes && Array.isArray(sizes) && sizes.length > 0) {
+            for (const size of sizes) {
+                await connection.execute(
+                    "INSERT INTO product_sizes (productId, sizeName, sizeCode, price, stock) VALUES (?, ?, ?, ?, ?)",
+                    [productId, size.sizeName, size.sizeCode, size.price || finalPrice, size.stock || 0]
+                );
+            }
+        }
+
         await connection.commit();
         res.status(201).json({ id: productId });
     } catch (err) {
@@ -176,9 +209,9 @@ router.post('/', async (req, res) => {
     }
 });
 
-// Update Product with color variants
+// Update Product with color and size variants
 router.put('/:id', async (req, res) => {
-    const { name, price, description, category, image, stock, disabled, discount, originalPrice, colors } = req.body;
+    const { name, price, description, category, image, stock, disabled, discount, originalPrice, colors, sizes } = req.body;
     const { id } = req.params;
     const pool = getDB();
 
@@ -212,6 +245,19 @@ router.put('/:id', async (req, res) => {
                     await connection.execute(
                         "INSERT INTO product_colors (productId, colorName, colorCode, price, stock, image) VALUES (?, ?, ?, ?, ?, ?)",
                         [id, color.colorName, color.colorCode, color.price || price, color.stock || 0, color.image || image]
+                    );
+                }
+            }
+        }
+
+        if (sizes && Array.isArray(sizes)) {
+            await connection.execute("DELETE FROM product_sizes WHERE productId = ?", [id]);
+
+            if (sizes.length > 0) {
+                for (const size of sizes) {
+                    await connection.execute(
+                        "INSERT INTO product_sizes (productId, sizeName, sizeCode, price, stock) VALUES (?, ?, ?, ?, ?)",
+                        [id, size.sizeName, size.sizeCode, size.price || price, size.stock || 0]
                     );
                 }
             }

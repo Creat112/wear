@@ -198,15 +198,29 @@ const createSQLiteTables = async () => {
     `);
 
     await pool.execute(`
+        CREATE TABLE IF NOT EXISTS product_sizes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            productId INTEGER,
+            sizeName TEXT,
+            sizeCode TEXT,
+            price REAL,
+            stock INTEGER DEFAULT 0,
+            FOREIGN KEY(productId) REFERENCES products(id) ON DELETE CASCADE
+        )
+    `);
+
+    await pool.execute(`
         CREATE TABLE IF NOT EXISTS cart (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             productId INTEGER,
             quantity INTEGER,
             userId INTEGER,
             colorId INTEGER NULL,
+            sizeId INTEGER NULL,
             addedAt TEXT,
             FOREIGN KEY(productId) REFERENCES products(id) ON DELETE CASCADE,
-            FOREIGN KEY(colorId) REFERENCES product_colors(id) ON DELETE SET NULL
+            FOREIGN KEY(colorId) REFERENCES product_colors(id) ON DELETE SET NULL,
+            FOREIGN KEY(sizeId) REFERENCES product_sizes(id) ON DELETE SET NULL
         )
     `);
 
@@ -259,6 +273,8 @@ const createSQLiteTables = async () => {
             productName TEXT,
             colorId INTEGER NULL,
             colorName TEXT,
+            sizeId INTEGER NULL,
+            sizeName TEXT,
             FOREIGN KEY(orderId) REFERENCES orders(id) ON DELETE CASCADE
         )
     `);

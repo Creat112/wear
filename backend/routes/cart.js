@@ -2,17 +2,19 @@ const express = require('express');
 const router = express.Router();
 const { getDB } = require('../database/init');
 
-// Get cart API with color information
+// Get cart API with color and size information
 router.get('/', async (req, res) => {
     const { userId } = req.query; 
     const pool = getDB();
 
     const query = `
         SELECT c.*, p.name, p.price, p.image, p.discount, p.originalPrice,
-               pc.colorName, pc.colorCode, pc.price as colorPrice, pc.stock as colorStock, pc.image as colorImage
+               pc.colorName, pc.colorCode, pc.price as colorPrice, pc.stock as colorStock, pc.image as colorImage,
+               ps.sizeName, ps.sizeCode, ps.price as sizePrice, ps.stock as sizeStock
         FROM cart c 
         JOIN products p ON c.productId = p.id
         LEFT JOIN product_colors pc ON c.colorId = pc.id
+        LEFT JOIN product_sizes ps ON c.sizeId = ps.id
         WHERE c.userId = ?
     `;
 
@@ -29,6 +31,8 @@ router.get('/', async (req, res) => {
             discount: r.discount != null ? Number(r.discount) : 0,
             colorPrice: r.colorPrice != null ? Number(r.colorPrice) : null,
             colorStock: r.colorStock != null ? Number(r.colorStock) : 0,
+            sizePrice: r.sizePrice != null ? Number(r.sizePrice) : null,
+            sizeStock: r.sizeStock != null ? Number(r.sizeStock) : 0,
         }));
         res.json(normalized);
     } catch (err) {
@@ -38,7 +42,7 @@ router.get('/', async (req, res) => {
 
 // Add to cart with stock validation
 router.post('/', async (req, res) => {
-    const { productId, quantity, userId, colorId } = req.body;
+    const { productId, quantity, userId, colorId, sizeId } = req.body;
     if (!productId || !userId) {
         return res.status(400).json({ error: 'ProductId and UserId required' });
     }
@@ -47,41 +51,60 @@ router.post('/', async (req, res) => {
     const addedAt = new Date().toISOString().slice(0, 19).replace('T', ' ');
 
     try {
-        if (colorId) {
-            // Validate color-specific stock
-            const [colorRows] = await pool.execute("SELECT stock FROM product_colors WHERE id = ?", [colorId]);
-            const colorRow = colorRows[0];
+        if (colorId || sizeId) {
+            // Validate variant-specific stock
+            let variantStock = null;
+            let variantType = '';
+            
+            if (sizeId) {
+                const [sizeRows] = await pool.execute("SELECT stock FROM product_sizes WHERE id = ?", [sizeId]);
+                if (sizeRows.length > 0) {
+                    variantStock = sizeRows[0].stock;
+                    variantType = 'size';
+                }
+            }
+            
+            if (colorId) {
+                const [colorRows] = await pool.execute("SELECT stock FROM product_colors WHERE id = ?", [colorId]);
+                if (colorRows.length > 0) {
+                    variantStock = colorRows[0].stock;
+                    variantType = 'color';
+                }
+            }
 
-            if (!colorRow) {
-                return res.status(404).json({ error: 'Color variant not found' });
+            if (variantStock === null) {
+                return res.status(404).json({ error: `${variantType || 'Variant'} not found` });
             }
 
             const requestedQty = quantity || 1;
 
-            // Check if item exists
-            const [cartRows] = await pool.execute("SELECT * FROM cart WHERE userId = ? AND productId = ? AND colorId = ?", [userId, productId, colorId]);
+            // Check if item exists with same color and size
+            const [cartRows] = await pool.execute(
+                "SELECT * FROM cart WHERE userId = ? AND productId = ? AND (colorId = ? OR colorId IS NULL) AND (sizeId = ? OR sizeId IS NULL)", 
+                [userId, productId, colorId || null, sizeId || null]
+            );
             const row = cartRows[0];
 
             if (row) {
                 const newQty = row.quantity + requestedQty;
-                if (newQty > colorRow.stock) {
+                if (newQty > variantStock) {
                     return res.status(400).json({
-                        error: `Insufficient stock. Only ${colorRow.stock} available.`,
-                        availableStock: colorRow.stock
+                        error: `Insufficient stock. Only ${variantStock} available.`,
+                        availableStock: variantStock
                     });
                 }
                 await pool.execute("UPDATE cart SET quantity = ? WHERE id = ?", [newQty, row.id]);
                 res.json({ success: true, message: 'Cart updated' });
             } else {
-                if (requestedQty > colorRow.stock) {
+                if (requestedQty > variantStock) {
                     return res.status(400).json({
-                        error: `Insufficient stock. Only ${colorRow.stock} available.`,
-                        availableStock: colorRow.stock
+                        error: `Insufficient stock. Only ${variantStock} available.`,
+                        availableStock: variantStock
                     });
                 }
                 await pool.execute(
-                    "INSERT INTO cart (userId, productId, quantity, colorId, addedAt) VALUES (?, ?, ?, ?, ?)",
-                    [userId, productId, requestedQty, colorId, addedAt]
+                    "INSERT INTO cart (userId, productId, quantity, colorId, sizeId, addedAt) VALUES (?, ?, ?, ?, ?, ?)",
+                    [userId, productId, requestedQty, colorId || null, sizeId || null, addedAt]
                 );
                 res.json({ success: true, message: 'Item added to cart' });
             }
