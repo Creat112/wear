@@ -1,4 +1,20 @@
 const nodemailer = require('nodemailer');
+
+const formatEmailDate = (dateValue) => {
+    const date = new Date(dateValue || Date.now());
+    const safeDate = Number.isNaN(date.getTime()) ? new Date() : date;
+    return safeDate.toLocaleString('en-US', {
+        timeZone: 'Africa/Cairo',
+        year: 'numeric',
+        month: 'numeric',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: true
+    });
+};
+
 const sendEmail = async ({ to, subject, html, preferSmtp = false }) => {
     try {
         // Trim env vars to handle accidental spaces
@@ -127,7 +143,7 @@ const sendCustomerOrderEmailWithTracking = async (orderData) => {
                 <div style="background: #f8f9fa; padding: 15px; border-radius: 5px; margin-bottom: 20px;">
                     <p style="margin: 5px 0;"><strong>Order ID:</strong> ${orderData.orderNumber}</p>
                     <p style="margin: 5px 0;"><strong>Total:</strong> <span style="color: #28a745;">EGP ${orderData.total.toFixed(2)}</span></p>
-                    <p style="margin: 5px 0;"><strong>Date:</strong> ${new Date(orderData.date).toLocaleString()}</p>
+                    <p style="margin: 5px 0;"><strong>Date:</strong> ${formatEmailDate(orderData.date)}</p>
                     <p style="margin: 5px 0;"><strong>Payment Method:</strong> <span style="color: ${orderData.paymentMethod === 'paymob' ? '#28a745' : '#ffc107'}; font-weight: bold;">${paymentMethodDisplay}</span></p>
                 </div>
                 
@@ -198,7 +214,7 @@ const buildOrderEmailHtml = (orderData, headingText) => {
                 
                 <div style="background: #f8f9fa; padding: 15px; border-radius: 5px; margin-bottom: 20px;">
                     <p style="margin: 5px 0;"><strong>Order Number:</strong> ${orderData.orderNumber}</p>
-                    <p style="margin: 5px 0;"><strong>Date:</strong> ${new Date(orderData.date).toLocaleString()}</p>
+                    <p style="margin: 5px 0;"><strong>Date:</strong> ${formatEmailDate(orderData.date)}</p>
                     <p style="margin: 5px 0;"><strong>Total:</strong> <span style="color: #28a745; font-size: 18px;">EGP ${orderData.total.toFixed(2)}</span></p>
                     <p style="margin: 5px 0;"><strong>Payment Method:</strong> <span style="color: ${paymentMethodColor}; font-weight: bold;">${paymentMethodDisplay}</span></p>
                 </div>
