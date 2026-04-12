@@ -432,20 +432,41 @@ const createTables = async () => {
 
 const seedAdmin = async () => {
     try {
-        const [rows] = await pool.execute("SELECT count(*) as count FROM users WHERE role = 'admin'");
-        if (rows[0].count === 0) {
-            const adminEmail = (process.env.ADMIN_EMAIL || 'admin@SAVX.com').trim();
-            const adminPassword = (process.env.ADMIN_PASSWORD || 'admin123').trim();
-            const adminName = (process.env.ADMIN_NAME || 'Admin User').trim();
-            const hashedPassword = await hashPassword(adminPassword);
-            const createdAt = new Date().toISOString().slice(0, 19).replace('T', ' ');
+        const adminEmail = (process.env.ADMIN_EMAIL || 'admin@SAVX.com').trim();
+        const adminPassword = (process.env.ADMIN_PASSWORD || 'admin123').trim();
+        const adminName = (process.env.ADMIN_NAME || 'Admin User').trim();
+        const hashedPassword = await hashPassword(adminPassword);
 
+        const [configuredUsers] = await pool.execute("SELECT id FROM users WHERE email = ?", [adminEmail]);
+        const configuredUser = configuredUsers[0];
+
+        if (configuredUser) {
             await pool.execute(
-                'INSERT INTO users (name, email, password, role, createdAt) VALUES (?, ?, ?, ?, ?)',
-                [adminName, adminEmail, hashedPassword, 'admin', createdAt]
+                "UPDATE users SET name = ?, password = ?, role = 'admin' WHERE id = ?",
+                [adminName, hashedPassword, configuredUser.id]
             );
-            console.log(`Admin user seeded successfully: ${adminEmail}`);
+            console.log(`Admin user synced from environment: ${adminEmail}`);
+            return;
         }
+
+        const [admins] = await pool.execute("SELECT id FROM users WHERE role = 'admin' ORDER BY id LIMIT 1");
+        const existingAdmin = admins[0];
+
+        if (existingAdmin) {
+            await pool.execute(
+                "UPDATE users SET name = ?, email = ?, password = ?, role = 'admin' WHERE id = ?",
+                [adminName, adminEmail, hashedPassword, existingAdmin.id]
+            );
+            console.log(`Existing admin user updated from environment: ${adminEmail}`);
+            return;
+        }
+
+        const createdAt = new Date().toISOString().slice(0, 19).replace('T', ' ');
+        await pool.execute(
+            'INSERT INTO users (name, email, password, role, createdAt) VALUES (?, ?, ?, ?, ?)',
+            [adminName, adminEmail, hashedPassword, 'admin', createdAt]
+        );
+        console.log(`Admin user seeded successfully: ${adminEmail}`);
     } catch (err) {
         console.error('Error seeding admin:', err.message);
     }

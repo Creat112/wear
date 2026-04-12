@@ -15,5 +15,9 @@
 - If remote credentials are incomplete or unavailable, the app falls back to a local SQLite database at `.data/savx-store.sqlite` for Replit development.
 - Local SQLite data is intentionally ignored by git.
 
+## Admin Account
+- The admin account is synchronized from `ADMIN_EMAIL`, `ADMIN_PASSWORD`, and `ADMIN_NAME` during database initialization.
+- Changing these secrets updates the configured admin user the next time the server starts.
+
 ## User Preferences
 - Preserve the imported project structure and dependencies; do not rewrite from scratch.
