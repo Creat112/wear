@@ -341,15 +341,29 @@ const createTables = async () => {
         `);
 
         await pool.execute(`
+            CREATE TABLE IF NOT EXISTS product_sizes (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                productId INT,
+                sizeName VARCHAR(100),
+                sizeCode VARCHAR(50),
+                price DECIMAL(10, 2),
+                stock INT DEFAULT 0,
+                FOREIGN KEY(productId) REFERENCES products(id) ON DELETE CASCADE
+            )
+        `);
+
+        await pool.execute(`
             CREATE TABLE IF NOT EXISTS cart (
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 productId INT,
                 quantity INT,
                 userId INT,
                 colorId INT NULL,
+                sizeId INT NULL,
                 addedAt DATETIME,
                 FOREIGN KEY(productId) REFERENCES products(id) ON DELETE CASCADE,
-                FOREIGN KEY(colorId) REFERENCES product_colors(id) ON DELETE SET NULL
+                FOREIGN KEY(colorId) REFERENCES product_colors(id) ON DELETE SET NULL,
+                FOREIGN KEY(sizeId) REFERENCES product_sizes(id) ON DELETE SET NULL
             )
         `);
 
@@ -419,6 +433,8 @@ const createTables = async () => {
                 productName VARCHAR(255),
                 colorId INT NULL,
                 colorName VARCHAR(100),
+                sizeId INT NULL,
+                sizeName VARCHAR(100),
                 FOREIGN KEY(orderId) REFERENCES orders(id) ON DELETE CASCADE
             )
         `);
