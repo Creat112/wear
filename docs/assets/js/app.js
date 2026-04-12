@@ -318,14 +318,17 @@ async function renderCartPage() {
             
             // Use color-specific image if available, otherwise main product image
             const displayImage = item.colorImage || item.image;
-            const colorDisplay = item.colorName ? `<p class="color-info">Color: ${item.colorName}</p>` : '';
+            const variantDisplay = [];
+            if (item.colorName) variantDisplay.push(`Color: ${item.colorName}`);
+            if (item.sizeName) variantDisplay.push(`Size: ${item.sizeName}`);
+            const variantInfo = variantDisplay.length > 0 ? `<p class="variant-info" style="font-size: 0.9rem; color: #666;">${variantDisplay.join(' | ')}</p>` : '';
             
             return `
             <div class="cart-item" data-id="${item.id}" data-product-id="${item.productId}">
                 <img src="${displayImage}" alt="${item.name}" class="cart-item-image" style="width: 80px; height: 80px; object-fit: cover; margin-right: 1rem;" />
                 <div class="cart-item-details" style="flex: 1;">
                     <h3>${item.name}</h3>
-                    ${colorDisplay}
+                    ${variantInfo}
                     <p class="price">${item.price.toFixed(2)}EGP</p>
                     <div class="quantity-controls" style="margin: 0.5rem 0;">
                         <input type="number" class="qty-input" min="1" value="${item.quantity}" style="width: 50px;" />

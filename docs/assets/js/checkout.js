@@ -47,9 +47,13 @@ window.addEventListener("DOMContentLoaded", () => {
             // Create item details
             const itemDetails = document.createElement("div");
             itemDetails.style.flex = "1";
+            const variantInfo = [];
+            if (item.colorName) variantInfo.push(`Color: ${item.colorName}`);
+            if (item.sizeName) variantInfo.push(`Size: ${item.sizeName}`);
+            
             itemDetails.innerHTML = `
                 <div style="font-weight: 600; color: #333;">${item.name}</div>
-                ${item.colorName ? `<div style="font-size: 0.9rem; color: #666;">Color: ${item.colorName}</div>` : ''}
+                ${variantInfo.length > 0 ? `<div style="font-size: 0.9rem; color: #666;">${variantInfo.join(' | ')}</div>` : ''}
                 <div style="font-size: 0.9rem; color: #666;">Qty: ${item.quantity}</div>
             `;
             
@@ -273,6 +277,7 @@ window.addEventListener("DOMContentLoaded", () => {
                                 ${issue.name || issue.productName}
                             </div>
                             ${issue.colorName ? `<div style="color: #666; font-size: 14px; margin-bottom: 4px;">Color: ${issue.colorName}</div>` : ''}
+                            ${issue.sizeName ? `<div style="color: #666; font-size: 14px; margin-bottom: 4px;">Size: ${issue.sizeName}</div>` : ''}
                             <div style="color: #dc2626; font-size: 14px;">
                                 Only ${issue.availableStock} left in stock
                             </div>
