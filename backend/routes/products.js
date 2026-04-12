@@ -213,6 +213,9 @@ router.post('/', async (req, res) => {
 router.put('/:id', async (req, res) => {
     const { name, price, description, category, image, stock, disabled, discount, originalPrice, colors, sizes } = req.body;
     const { id } = req.params;
+    
+    console.log('PUT /products/:id - Received sizes:', sizes);
+    
     const pool = getDB();
 
     const connection = await pool.getConnection();
@@ -251,19 +254,25 @@ router.put('/:id', async (req, res) => {
         }
 
         if (sizes && Array.isArray(sizes)) {
+            console.log('Deleting existing sizes for product:', id);
             await connection.execute("DELETE FROM product_sizes WHERE productId = ?", [id]);
 
             if (sizes.length > 0) {
+                console.log('Inserting', sizes.length, 'sizes');
                 for (const size of sizes) {
+                    console.log('Inserting size:', size);
                     await connection.execute(
                         "INSERT INTO product_sizes (productId, sizeName, sizeCode, price, stock) VALUES (?, ?, ?, ?, ?)",
                         [id, size.sizeName, size.sizeCode, size.price || price, size.stock || 0]
                     );
                 }
             }
+        } else {
+            console.log('No sizes received or sizes is not an array');
         }
 
         await connection.commit();
+        console.log('Product update committed successfully');
         res.json({ success: true });
     } catch (err) {
         await connection.rollback();
