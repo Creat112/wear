@@ -1,7 +1,6 @@
 const express = require('express');
 const router = express.Router();
 const { getDB } = require('../database/init');
-const { formatAppDateTime } = require('../utils/dateUtils');
 
 // Get cart API with color information
 router.get('/', async (req, res) => {
@@ -45,7 +44,7 @@ router.post('/', async (req, res) => {
     }
 
     const pool = getDB();
-    const addedAt = formatAppDateTime();
+    const addedAt = new Date().toISOString().slice(0, 19).replace('T', ' ');
 
     try {
         if (colorId) {

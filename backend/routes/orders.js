@@ -2,7 +2,6 @@ const express = require('express');
 const router = express.Router();
 const { getDB } = require('../database/init');
 const { sendOrderEmail, sendCustomerOrderEmailWithTracking, sendOrderStatusUpdateEmail } = require('../utils/email');
-const { formatAppDateTime } = require('../utils/dateUtils');
 
 // Get all orders (Admin)
 router.get('/', async (req, res) => {
@@ -134,7 +133,7 @@ router.post('/', async (req, res) => {
             return res.status(400).json({ error: 'Stock validation failed', details: stockErrors });
         }
 
-        const mysqlDate = formatAppDateTime(date);
+        const mysqlDate = new Date(date || Date.now()).toISOString().slice(0, 19).replace('T', ' ');
 
         // Proceed with order creation
         const [result] = await connection.execute(`
@@ -178,7 +177,7 @@ router.post('/', async (req, res) => {
         (async () => {
             try {
                 console.log('Sending admin order email...');
-                const adminEmailResult = await sendOrderEmail({ customer, shipping, items, total, orderNumber, date: mysqlDate, paymentMethod });
+                const adminEmailResult = await sendOrderEmail({ customer, shipping, items, total, orderNumber, date, paymentMethod });
                 console.log('Admin email result:', adminEmailResult);
             } catch (emailErr) {
                 console.error('Admin email failed:', emailErr);
@@ -186,7 +185,7 @@ router.post('/', async (req, res) => {
             
             try {
                 console.log('Sending customer order email...');
-                const customerEmailResult = await sendCustomerOrderEmailWithTracking({ customer, shipping, items, total, orderNumber, date: mysqlDate, paymentMethod });
+                const customerEmailResult = await sendCustomerOrderEmailWithTracking({ customer, shipping, items, total, orderNumber, date, paymentMethod });
                 console.log('Customer email result:', customerEmailResult);
             } catch (emailErr) {
                 console.error('Customer email failed:', emailErr);
@@ -294,10 +293,10 @@ router.put('/:id', async (req, res) => {
         
         if (status === 'shipped') {
             updateFields.push('shippedDate = ?');
-            updateValues.push(formatAppDateTime());
+            updateValues.push(new Date().toISOString().slice(0, 19).replace('T', ' '));
         } else if (status === 'delivered') {
             updateFields.push('deliveredDate = ?');
-            updateValues.push(formatAppDateTime());
+            updateValues.push(new Date().toISOString().slice(0, 19).replace('T', ' '));
         }
         
         updateValues.push(id, id);

@@ -10,7 +10,6 @@ const {
 } = require('../utils/paymobUtils');
 const { getDB } = require('../database/init');
 const { sendOrderEmail, sendCustomerOrderEmailWithTracking } = require('../utils/email');
-const { formatAppDateTime } = require('../utils/dateUtils');
 
 // Paymob Payment Routes
 
@@ -83,7 +82,7 @@ router.post('/paymob/create', async (req, res) => {
             paymentToken,
             amount,
             'pending',
-            formatAppDateTime()
+            new Date().toISOString().slice(0, 19).replace('T', ' ')
         ]);
 
         res.json({
@@ -124,7 +123,7 @@ router.post('/paymob/webhook', express.raw({ type: 'application/json' }), async 
             `, [
                 processedData.status,
                 processedData.transactionId,
-                formatAppDateTime(),
+                new Date().toISOString().slice(0, 19).replace('T', ' '),
                 processedData.orderId
             ]);
 
@@ -134,7 +133,7 @@ router.post('/paymob/webhook', express.raw({ type: 'application/json' }), async 
                     SET status = 'paid', payment_method = 'paymob', updated_at = ?
                     WHERE id = ?
                 `, [
-                    formatAppDateTime(),
+                    new Date().toISOString().slice(0, 19).replace('T', ' '),
                     processedData.merchantOrderId
                 ]);
 
@@ -165,7 +164,7 @@ router.post('/paymob/webhook', express.raw({ type: 'application/json' }), async 
                     SET status = 'payment_failed', updated_at = ?
                     WHERE id = ?
                 `, [
-                    formatAppDateTime(),
+                    new Date().toISOString().slice(0, 19).replace('T', ' '),
                     processedData.merchantOrderId
                 ]);
             }
