@@ -5,6 +5,7 @@ import { updateAuthUI, initAuth } from './auth.js';
 
 let currentProduct = null;
 let selectedColor = null;
+let selectedSize = null;
 
 document.addEventListener('DOMContentLoaded', async () => {
     // Auth UI
@@ -66,9 +67,14 @@ function renderProductDetail(product) {
         }
     }
 
+    // Select first size by default
+    if (product.sizes && product.sizes.length > 0) {
+        selectedSize = product.sizes[0];
+    }
+
     const hasDiscount = product.discount && product.discount > 0;
-    const displayPrice = selectedColor ? selectedColor.price : product.price;
-    const displayStock = selectedColor ? selectedColor.stock : product.stock;
+    const displayPrice = selectedColor ? selectedColor.price : (selectedSize ? selectedSize.price : product.price);
+    const displayStock = selectedColor ? selectedColor.stock : (selectedSize ? selectedSize.stock : product.stock);
 
     container.innerHTML = `
         <div class="product-detail-grid">
@@ -118,6 +124,28 @@ function renderProductDetail(product) {
                         <br>
                         <br>
                         <p class="selected-color-name">Selected: <strong id="selected-color-display">${selectedColor.colorName}</strong></p>
+                    </div>
+                ` : ''}
+
+                ${product.sizes && product.sizes.length > 0 ? `
+                    <div class="size-selection">
+                        <h3>Select Size:</h3>
+                        <div class="size-options" id="size-options">
+                            ${product.sizes.map(size => `
+                                <button 
+                                    class="size-btn ${size.id === selectedSize.id ? 'active' : ''}" 
+                                    data-size-id="${size.id}"
+                                    data-size-name="${size.sizeName}"
+                                    data-size-code="${size.sizeCode}"
+                                    data-price="${size.price}"
+                                    data-stock="${size.stock}"
+                                    title="${size.sizeName}"
+                                >
+                                    <span class="size-code">${size.sizeCode || size.sizeName}</span>
+                                </button>
+                            `).join('')}
+                        </div>
+                        <p class="selected-size-name">Selected: <strong id="selected-size-display">${selectedSize.sizeName}</strong></p>
                     </div>
                 ` : ''}
 
@@ -178,6 +206,27 @@ function attachEventListeners() {
             updatePriceAndStock(price, stock);
             updateImage(image);
             document.getElementById('selected-color-display').textContent = colorName;
+        });
+    });
+
+    // Size selection
+    const sizeBtns = document.querySelectorAll('.size-btn');
+    sizeBtns.forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const sizeId = parseInt(e.currentTarget.dataset.sizeId);
+            const sizeName = e.currentTarget.dataset.sizeName;
+            const sizeCode = e.currentTarget.dataset.sizeCode;
+            const price = parseFloat(e.currentTarget.dataset.price);
+            const stock = parseInt(e.currentTarget.dataset.stock);
+
+            selectedSize = { id: sizeId, sizeName, sizeCode, price, stock };
+
+            // Update UI
+            sizeBtns.forEach(b => b.classList.remove('active'));
+            e.currentTarget.classList.add('active');
+
+            updatePriceAndStock(price, stock);
+            document.getElementById('selected-size-display').textContent = sizeName;
         });
     });
 
@@ -255,8 +304,15 @@ function updateImage(imageSrc) {
 }
 
 async function handleAddToCart() {
-    if (!selectedColor) {
+    // Check if product requires color selection
+    if (currentProduct.colors && currentProduct.colors.length > 0 && !selectedColor) {
         showErrorMessage('Please select a color');
+        return;
+    }
+
+    // Check if product requires size selection
+    if (currentProduct.sizes && currentProduct.sizes.length > 0 && !selectedSize) {
+        showErrorMessage('Please select a size');
         return;
     }
 
@@ -267,13 +323,15 @@ async function handleAddToCart() {
         return;
     }
 
-    if (quantity > selectedColor.stock) {
-        showErrorMessage(`Only ${selectedColor.stock} items available in stock`);
+    // Check stock based on selected variant (color or size)
+    const selectedStock = selectedColor ? selectedColor.stock : (selectedSize ? selectedSize.stock : currentProduct.stock);
+    if (quantity > selectedStock) {
+        showErrorMessage(`Only ${selectedStock} items available in stock`);
         return;
     }
 
     try {
-        await addToCart(currentProduct.id, quantity, selectedColor.id);
+        await addToCart(currentProduct.id, quantity, selectedColor ? selectedColor.id : null, selectedSize ? selectedSize.id : null);
         showSuccessMessage(`Added ${quantity} item(s) to cart!`);
 
         // Optionally redirect to cart after a delay
