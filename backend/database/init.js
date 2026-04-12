@@ -1,6 +1,7 @@
 const mysql = require('mysql2/promise');
 const sqlite3 = require('sqlite3').verbose();
 const { hashPassword } = require('../utils/passwordUtils');
+const { formatAppDateTime } = require('../utils/dateUtils');
 const fs = require('fs');
 const path = require('path');
 
@@ -438,7 +439,7 @@ const seedAdmin = async () => {
             const adminPassword = (process.env.ADMIN_PASSWORD || 'admin123').trim();
             const adminName = (process.env.ADMIN_NAME || 'Admin User').trim();
             const hashedPassword = await hashPassword(adminPassword);
-            const createdAt = new Date().toISOString().slice(0, 19).replace('T', ' ');
+            const createdAt = formatAppDateTime();
 
             await pool.execute(
                 'INSERT INTO users (name, email, password, role, createdAt) VALUES (?, ?, ?, ?, ?)',

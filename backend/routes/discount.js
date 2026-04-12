@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { getDB } = require('../database/init');
+const { formatAppDateTime } = require('../utils/dateUtils');
 
 // Get all discount codes (Admin)
 router.get('/', async (req, res) => {
@@ -108,7 +109,7 @@ router.post('/', async (req, res) => {
         console.log('🔍 Creating discount:', { code, discount_type, percentage, fixed_amount });
         await pool.execute(
             "INSERT INTO discount_codes (code, discount_type, percentage, fixed_amount, active, created_at) VALUES (?, ?, ?, ?, 1, ?)",
-            [code, discount_type, percentage, fixed_amount, new Date().toISOString().slice(0, 19).replace('T', ' ')]
+            [code, discount_type, percentage, fixed_amount, formatAppDateTime()]
         );
         console.log('✅ Discount created successfully:', code);
         res.status(201).json({ success: true });

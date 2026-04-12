@@ -15,5 +15,10 @@
 - If remote credentials are incomplete or unavailable, the app falls back to a local SQLite database at `.data/savx-store.sqlite` for Replit development.
 - Local SQLite data is intentionally ignored by git.
 
+## Time Handling
+- Server-side business timestamps are formatted through `backend/utils/dateUtils.js`.
+- The default app time offset is +120 minutes to avoid stored/displayed order times appearing two hours behind.
+- Override with `APP_TIME_OFFSET_MINUTES` or `TIME_OFFSET_MINUTES` if the store timezone changes.
+
 ## User Preferences
 - Preserve the imported project structure and dependencies; do not rewrite from scratch.

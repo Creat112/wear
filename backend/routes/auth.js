@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { getDB } = require('../database/init');
 const { hashPassword, comparePassword } = require('../utils/passwordUtils');
+const { formatAppDateTime } = require('../utils/dateUtils');
 
 const { OAuth2Client } = require('google-auth-library');
 const CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '633744806004-b1phb0vkuivleugtdrcmoumkior2sr31.apps.googleusercontent.com';
@@ -28,7 +29,7 @@ router.post('/google', async (req, res) => {
             res.json(user);
         } else {
             // Create new user (default role: customer)
-            const createdAt = new Date().toISOString().slice(0, 19).replace('T', ' ');
+            const createdAt = formatAppDateTime();
             const [result] = await pool.execute(
                 "INSERT INTO users (name, email, password, role, createdAt) VALUES (?, ?, ?, ?, ?)",
                 [name, email, 'GOOGLE_AUTH', 'customer', createdAt]
@@ -55,7 +56,7 @@ router.post('/signup', async (req, res) => {
 
     try {
         const pool = getDB();
-        const createdAt = new Date().toISOString().slice(0, 19).replace('T', ' ');
+        const createdAt = formatAppDateTime();
         const role = 'customer';
 
         // Hash the password
