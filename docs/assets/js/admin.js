@@ -346,14 +346,13 @@ async function handleProductSubmit(e) {
         const sName = row.querySelector('.s-name').value.trim();
         const sCode = row.querySelector('.s-code').value.trim();
         const sPrice = parseFloat(row.querySelector('.s-price').value) || price;
-        const sStock = parseInt(row.querySelector('.s-stock').value) || 0;
 
         // Only add if size name is provided
         if (sName) {
             sizes.push({
                 sizeName: sName,
                 sizeCode: sCode,
-                stock: sStock,
+                stock: 0, // Default stock, can be updated later
                 price: sPrice
             });
         }
