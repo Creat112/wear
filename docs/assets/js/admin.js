@@ -268,11 +268,25 @@ function addSizeRow(data = null) {
         <div style="flex:1;">
             <input class="s-price" type="number" placeholder="Price" value="${data ? data.price : ''}" style="width:100%; padding:6px; border-radius:4px; border:1px solid rgba(255,255,255,0.2); background:transparent; color:white;">
         </div>
-        <div style="width:80px;">
-            <input class="s-stock" type="number" placeholder="Qty" value="${data ? data.stock : 0}" required style="width:100%; padding:6px; border-radius:4px; border:1px solid rgba(255,255,255,0.2); background:transparent; color:white;">
-        </div>
+        <button type="button" class="btn-small save-size-btn" style="background: rgba(34, 197, 94, 0.2); color: #22c55e; border:none; height: fit-content;"><i class="ri-save-line"></i></button>
         <button type="button" onclick="this.parentElement.remove()" class="btn-small" style="background: rgba(239, 68, 68, 0.2); color: #ef4444; border:none; height: fit-content;"><i class="ri-delete-bin-line"></i></button>
     `;
+
+    // Add save button click handler
+    const saveBtn = div.querySelector('.save-size-btn');
+    saveBtn.addEventListener('click', () => {
+        const name = div.querySelector('.s-name').value.trim();
+        if (name) {
+            saveBtn.innerHTML = '<i class="ri-check-line"></i>';
+            saveBtn.style.background = 'rgba(34, 197, 94, 0.4)';
+            setTimeout(() => {
+                saveBtn.innerHTML = '<i class="ri-save-line"></i>';
+                saveBtn.style.background = 'rgba(34, 197, 94, 0.2)';
+            }, 1000);
+        } else {
+            alert('Please enter a size name');
+        }
+    });
 
     container.appendChild(div);
 }
