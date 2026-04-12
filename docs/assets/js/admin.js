@@ -326,18 +326,25 @@ async function handleProductSubmit(e) {
     // Handle Sizes
     const sizes = [];
     const sizeRows = document.querySelectorAll('.size-row');
+    console.log('Found size rows:', sizeRows.length);
 
     for (const row of sizeRows) {
+        const sName = row.querySelector('.s-name').value.trim();
+        const sCode = row.querySelector('.s-code').value.trim();
         const sPrice = parseFloat(row.querySelector('.s-price').value) || price;
         const sStock = parseInt(row.querySelector('.s-stock').value) || 0;
 
-        sizes.push({
-            sizeName: row.querySelector('.s-name').value,
-            sizeCode: row.querySelector('.s-code').value,
-            stock: sStock,
-            price: sPrice
-        });
+        // Only add if size name is provided
+        if (sName) {
+            sizes.push({
+                sizeName: sName,
+                sizeCode: sCode,
+                stock: sStock,
+                price: sPrice
+            });
+        }
     }
+    console.log('Collected sizes:', sizes);
 
     const product = {
         id: id ? parseInt(id) : null,
@@ -353,12 +360,16 @@ async function handleProductSubmit(e) {
         image: imageBase64
     };
 
+    console.log('Saving product with sizes:', product);
+
     try {
-        await saveProduct(product);
+        const result = await saveProduct(product);
+        console.log('Save result:', result);
         document.getElementById('product-modal').classList.remove('active');
         loadProducts();
     } catch (err) {
-        alert('Error: ' + err.message);
+        console.error('Save error:', err);
+        alert('Error saving product: ' + (err.message || err.error || 'Unknown error'));
     }
 }
 
@@ -435,6 +446,7 @@ async function loadProducts() {
                     <td>
                         <span class="badge ${p.disabled ? 'cancelled' : 'delivered'}">${p.disabled ? 'Disabled' : 'Active'}</span>
                         ${(!p.colors || p.colors.length === 0) ? '<span style="color:#f59e0b; font-size:11px; margin-left:6px;" title="No color variants added">⚠️ No Colors</span>' : ''}
+                        ${(!p.sizes || p.sizes.length === 0) ? '<span style="color:#f59e0b; font-size:11px; margin-left:6px;" title="No size variants added">⚠️ No Sizes</span>' : ''}
                     </td>
                     <td>
                         <button class="btn-small" onclick="editProduct(${p.id})">Edit</button>
