@@ -137,6 +137,7 @@ function initModalLogic() {
     const closeBtn = document.getElementById('close-modal');
     const form = document.getElementById('product-form');
     const addColorBtn = document.getElementById('add-color-btn');
+    const addSizeBtn = document.getElementById('add-size-btn');
 
     if (openBtn) {
         openBtn.addEventListener('click', () => {
@@ -158,6 +159,10 @@ function initModalLogic() {
 
     if (addColorBtn) {
         addColorBtn.addEventListener('click', () => addColorRow());
+    }
+
+    if (addSizeBtn) {
+        addSizeBtn.addEventListener('click', () => addSizeRow());
     }
 
     if (form) {
@@ -189,6 +194,7 @@ function resetForm() {
     document.getElementById('product-form').reset();
     document.getElementById('product-id').value = '';
     document.getElementById('colors-container').innerHTML = '';
+    document.getElementById('sizes-container').innerHTML = '';
     document.getElementById('modal-title').textContent = 'Add New Product';
 
     // Add one empty color variant by default
@@ -246,6 +252,31 @@ function addColorRow(data = null) {
     container.appendChild(div);
 }
 
+function addSizeRow(data = null) {
+    const container = document.getElementById('sizes-container');
+    const div = document.createElement('div');
+    div.className = 'size-row';
+    div.style.cssText = 'display:flex; gap:8px; align-items:center; margin-bottom:8px; padding:8px; background:rgba(255,255,255,0.05); border-radius:4px;';
+
+    div.innerHTML = `
+        <div style="flex:2;">
+            <input class="s-name" placeholder="Size Name (e.g. Small, Medium, Large)" value="${data ? data.sizeName : ''}" required style="width:100%; padding:6px; border-radius:4px; border:1px solid rgba(255,255,255,0.2); background:transparent; color:white;">
+        </div>
+        <div style="flex:1;">
+            <input class="s-code" placeholder="Code (e.g. S, M, L)" value="${data ? data.sizeCode : ''}" style="width:100%; padding:6px; border-radius:4px; border:1px solid rgba(255,255,255,0.2); background:transparent; color:white;">
+        </div>
+        <div style="flex:1;">
+            <input class="s-price" type="number" placeholder="Price" value="${data ? data.price : ''}" style="width:100%; padding:6px; border-radius:4px; border:1px solid rgba(255,255,255,0.2); background:transparent; color:white;">
+        </div>
+        <div style="width:80px;">
+            <input class="s-stock" type="number" placeholder="Qty" value="${data ? data.stock : 0}" required style="width:100%; padding:6px; border-radius:4px; border:1px solid rgba(255,255,255,0.2); background:transparent; color:white;">
+        </div>
+        <button type="button" onclick="this.parentElement.remove()" class="btn-small" style="background: rgba(239, 68, 68, 0.2); color: #ef4444; border:none; height: fit-content;"><i class="ri-delete-bin-line"></i></button>
+    `;
+
+    container.appendChild(div);
+}
+
 async function handleProductSubmit(e) {
     e.preventDefault();
     const id = document.getElementById('product-id').value;
@@ -292,6 +323,22 @@ async function handleProductSubmit(e) {
         });
     }
 
+    // Handle Sizes
+    const sizes = [];
+    const sizeRows = document.querySelectorAll('.size-row');
+
+    for (const row of sizeRows) {
+        const sPrice = parseFloat(row.querySelector('.s-price').value) || price;
+        const sStock = parseInt(row.querySelector('.s-stock').value) || 0;
+
+        sizes.push({
+            sizeName: row.querySelector('.s-name').value,
+            sizeCode: row.querySelector('.s-code').value,
+            stock: sStock,
+            price: sPrice
+        });
+    }
+
     const product = {
         id: id ? parseInt(id) : null,
         name,
@@ -300,8 +347,9 @@ async function handleProductSubmit(e) {
         originalPrice,
         category,
         description: desc,
-        stock: colors.reduce((sum, c) => sum + c.stock, 0),
+        stock: colors.reduce((sum, c) => sum + c.stock, 0) + sizes.reduce((sum, s) => sum + s.stock, 0),
         colors: colors,
+        sizes: sizes,
         image: imageBase64
     };
 
@@ -418,11 +466,16 @@ window.editProduct = async function (id) {
 
     // Clear default empty row
     document.getElementById('colors-container').innerHTML = '';
+    document.getElementById('sizes-container').innerHTML = '';
 
     if (product.colors && product.colors.length > 0) {
         product.colors.forEach(c => addColorRow(c));
     } else {
         addColorRow();
+    }
+
+    if (product.sizes && product.sizes.length > 0) {
+        product.sizes.forEach(s => addSizeRow(s));
     }
 
     document.getElementById('product-modal').classList.add('active');
@@ -695,7 +748,9 @@ window.viewOrderDetails = async function (orderId) {
                                 <div style="flex: 1; min-width: 0;">
                                     <div style="font-weight: 500; word-wrap: break-word; overflow-wrap: break-word;">${item.name}</div>
                                     <div style="font-size: 12px; color: #94a3b8;">
-                                        ${item.colorName && item.colorName.trim() ? `Color: ${item.colorName}` : '<span style="color:#f59e0b;">⚠️ No Color</span>'} | Qty: ${item.quantity}
+                                        ${item.colorName && item.colorName.trim() ? `Color: ${item.colorName}` : '<span style="color:#f59e0b;">⚠️ No Color</span>'} 
+                                        ${item.sizeName && item.sizeName.trim() ? `| Size: ${item.sizeName}` : '| <span style="color:#f59e0b;">⚠️ No Size</span>'} 
+                                        | Qty: ${item.quantity}
                                     </div>
                                 </div>
                             </div>
