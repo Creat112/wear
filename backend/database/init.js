@@ -1,76 +1,72 @@
 const mysql = require('mysql2/promise');
+const sqlite3 = require('sqlite3').verbose();
 const { hashPassword } = require('../utils/passwordUtils');
 const fs = require('fs');
 const path = require('path');
 
 let pool;
+let dbEngine = 'none';
 
 const initDB = async () => {
-    try {
-        // Try MySQL/Aiven connection
-        await initMySQL();
-    } catch (err) {
-        console.error('❌ Database connection failed:', err.message);
-        console.error('🔧 Please check your database configuration in .env or Replit Secrets');
-        console.error('📋 Required: DB_HOST, DB_USER, DB_PASSWORD, DB_NAME');
-        console.warn('⚠️ Continuing without database - some features will not work');
+    const hasRemoteConfig = process.env.DB_HOST && process.env.DB_USER && process.env.DB_PASSWORD && process.env.DB_NAME;
+
+    if (hasRemoteConfig) {
+        try {
+            await initMySQL();
+            return;
+        } catch (err) {
+            console.warn(`Remote database unavailable: ${err.message}`);
+            console.warn('Using local SQLite database for this Replit workspace.');
+        }
+    } else {
+        console.warn('Remote database credentials are incomplete. Using local SQLite database for this Replit workspace.');
     }
+
+    await initSQLite();
 };
 
 const initMySQL = async () => {
-    // Prepare base connection config
     const host = process.env.DB_HOST || '127.0.0.1';
-    
+
     if (host === '127.0.0.1' || host === 'localhost') {
-        console.warn('⚠️ WARNING: Using local database (127.0.0.1). Your data will likely disappear when server restarts!');
-        console.log('👉 Make sure you have MySQL installed and running locally.');
-        console.log('📋 To install MySQL: https://dev.mysql.com/downloads/mysql/');
-        console.log('🔧 Or configure a cloud database in your .env file');
+        console.warn('Using local MySQL database.');
     } else {
-        console.log(`📡 Connecting to remote cloud database: ${host}`);
+        console.log(`Connecting to remote cloud database: ${host}`);
     }
 
     const dbConfig = {
-        host: host,
+        host,
         user: process.env.DB_USER || 'root',
         password: process.env.DB_PASSWORD || '',
-        port: process.env.DB_PORT || 3306,
-        acquireTimeout: 60000,
-        timeout: 60000,
-        reconnect: true
+        port: process.env.DB_PORT || 3306
     };
 
-    // If a CA cert exists in project root, assume remote Cloud DB (Aiven) and apply SSL
     const possibleCaPaths = [
         path.join(__dirname, '../../ca.pem'),
-        ...require('fs').readdirSync(path.join(__dirname, '../../'))
+        ...fs.readdirSync(path.join(__dirname, '../../'))
             .filter(f => f.endsWith('.pem'))
             .map(f => path.join(__dirname, '../../', f))
     ];
     const caPath = possibleCaPaths.find(p => fs.existsSync(p));
     if (caPath) {
-        console.log(`🔐 Using SSL certificate: ${path.basename(caPath)}`);
+        console.log(`Using SSL certificate: ${path.basename(caPath)}`);
         dbConfig.ssl = {
             ca: fs.readFileSync(caPath)
         };
     }
 
-    // Test basic connection first
-    console.log('🔍 Testing MySQL connection...');
+    console.log('Testing MySQL connection...');
     const testConnection = await mysql.createConnection(dbConfig);
     await testConnection.ping();
     await testConnection.end();
-    console.log('✅ MySQL connection test successful');
+    console.log('MySQL connection test successful');
 
-    // First try to connect without database selected to create it if it doesn't exist
     const connection = await mysql.createConnection(dbConfig);
-
     const dbName = process.env.DB_NAME || 'savx_store';
-    console.log(`📂 Selecting database: ${dbName}`);
+    console.log(`Selecting database: ${dbName}`);
     await connection.query(`CREATE DATABASE IF NOT EXISTS \`${dbName}\`;`);
     await connection.end();
 
-    // Now initialize the pool properly
     pool = mysql.createPool({
         ...dbConfig,
         database: dbName,
@@ -79,14 +75,216 @@ const initMySQL = async () => {
         queueLimit: 0
     });
 
-    console.log('✅ Connected to the MySQL database.');
+    dbEngine = 'mysql';
+    console.log('Connected to the MySQL database.');
     await createTables();
 };
 
+class SQLitePool {
+    constructor(filePath) {
+        this.db = new sqlite3.Database(filePath);
+    }
+
+    execute(sql, params = []) {
+        const normalized = sql.trim().toLowerCase();
+        if (normalized.startsWith('select') || normalized.startsWith('with') || normalized.startsWith('pragma')) {
+            return this.all(sql, params).then(rows => [rows]);
+        }
+        return this.run(sql, params).then(result => [result]);
+    }
+
+    all(sql, params = []) {
+        return new Promise((resolve, reject) => {
+            this.db.all(sql, params, (err, rows) => {
+                if (err) return reject(normalizeSQLiteError(err));
+                resolve(rows || []);
+            });
+        });
+    }
+
+    run(sql, params = []) {
+        return new Promise((resolve, reject) => {
+            this.db.run(sql, params, function(err) {
+                if (err) return reject(normalizeSQLiteError(err));
+                resolve({ insertId: this.lastID, affectedRows: this.changes, changes: this.changes });
+            });
+        });
+    }
+
+    async getConnection() {
+        return new SQLiteConnection(this);
+    }
+}
+
+class SQLiteConnection {
+    constructor(poolInstance) {
+        this.pool = poolInstance;
+    }
+
+    execute(sql, params = []) {
+        return this.pool.execute(sql, params);
+    }
+
+    beginTransaction() {
+        return this.pool.run('BEGIN TRANSACTION');
+    }
+
+    commit() {
+        return this.pool.run('COMMIT');
+    }
+
+    rollback() {
+        return this.pool.run('ROLLBACK');
+    }
+
+    release() {}
+}
+
+const normalizeSQLiteError = (err) => {
+    if (err && err.code === 'SQLITE_CONSTRAINT') {
+        err.code = 'ER_DUP_ENTRY';
+    }
+    return err;
+};
+
+const initSQLite = async () => {
+    const dataDir = path.join(__dirname, '../../.data');
+    fs.mkdirSync(dataDir, { recursive: true });
+    const dbPath = process.env.SQLITE_PATH || path.join(dataDir, 'savx-store.sqlite');
+    pool = new SQLitePool(dbPath);
+    dbEngine = 'sqlite';
+    console.log(`Connected to local SQLite database: ${dbPath}`);
+    await createSQLiteTables();
+};
+
+const createSQLiteTables = async () => {
+    await pool.execute(`
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT,
+            email TEXT UNIQUE,
+            password TEXT,
+            role TEXT DEFAULT 'customer',
+            createdAt TEXT
+        )
+    `);
+
+    await pool.execute(`
+        CREATE TABLE IF NOT EXISTS products (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT,
+            price REAL,
+            description TEXT,
+            category TEXT,
+            image TEXT,
+            stock INTEGER DEFAULT 0,
+            disabled INTEGER DEFAULT 0,
+            discount REAL DEFAULT 0,
+            originalPrice REAL
+        )
+    `);
+
+    await pool.execute(`
+        CREATE TABLE IF NOT EXISTS product_colors (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            productId INTEGER,
+            colorName TEXT,
+            colorCode TEXT,
+            price REAL,
+            stock INTEGER DEFAULT 0,
+            image TEXT,
+            FOREIGN KEY(productId) REFERENCES products(id) ON DELETE CASCADE
+        )
+    `);
+
+    await pool.execute(`
+        CREATE TABLE IF NOT EXISTS cart (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            productId INTEGER,
+            quantity INTEGER,
+            userId INTEGER,
+            colorId INTEGER NULL,
+            addedAt TEXT,
+            FOREIGN KEY(productId) REFERENCES products(id) ON DELETE CASCADE,
+            FOREIGN KEY(colorId) REFERENCES product_colors(id) ON DELETE SET NULL
+        )
+    `);
+
+    await pool.execute(`
+        CREATE TABLE IF NOT EXISTS discount_codes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            code TEXT UNIQUE,
+            discount_type TEXT DEFAULT 'percentage',
+            discount_value REAL DEFAULT 0,
+            percentage REAL DEFAULT 0,
+            fixed_amount REAL DEFAULT 0,
+            active INTEGER DEFAULT 1,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    `);
+
+    await pool.execute(`
+        CREATE TABLE IF NOT EXISTS orders (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            orderNumber TEXT UNIQUE NOT NULL,
+            total REAL NOT NULL,
+            discount_code TEXT NULL,
+            discount_amount REAL DEFAULT 0,
+            status TEXT DEFAULT 'pending',
+            date TEXT NOT NULL,
+            customerName TEXT,
+            customerEmail TEXT,
+            customerPhone TEXT,
+            shippingAddress TEXT,
+            shippingCity TEXT,
+            shippingGov TEXT,
+            notes TEXT,
+            payment_method TEXT DEFAULT 'cash',
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            trackingNumber TEXT NULL,
+            shippedDate TEXT NULL,
+            estimatedDelivery TEXT NULL,
+            deliveredDate TEXT NULL
+        )
+    `);
+
+    await pool.execute(`
+        CREATE TABLE IF NOT EXISTS order_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            orderId INTEGER,
+            productId INTEGER,
+            quantity INTEGER,
+            price REAL,
+            productName TEXT,
+            colorId INTEGER NULL,
+            colorName TEXT,
+            FOREIGN KEY(orderId) REFERENCES orders(id) ON DELETE CASCADE
+        )
+    `);
+
+    await pool.execute(`
+        CREATE TABLE IF NOT EXISTS payment_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            order_id INTEGER,
+            paymob_order_id INTEGER,
+            payment_token TEXT,
+            amount REAL,
+            status TEXT DEFAULT 'pending',
+            transaction_id TEXT,
+            created_at TEXT,
+            processed_at TEXT,
+            FOREIGN KEY(order_id) REFERENCES orders(id) ON DELETE CASCADE
+        )
+    `);
+
+    await seedAdmin();
+    await seedProducts();
+    await seedProductColors();
+};
 
 const createTables = async () => {
     try {
-        // Users Table
         await pool.execute(`
             CREATE TABLE IF NOT EXISTS users (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -98,7 +296,6 @@ const createTables = async () => {
             )
         `);
 
-        // Products Table
         await pool.execute(`
             CREATE TABLE IF NOT EXISTS products (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -114,7 +311,6 @@ const createTables = async () => {
             )
         `);
 
-        // Product Colors Table
         await pool.execute(`
             CREATE TABLE IF NOT EXISTS product_colors (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -128,7 +324,6 @@ const createTables = async () => {
             )
         `);
 
-        // Cart Table
         await pool.execute(`
             CREATE TABLE IF NOT EXISTS cart (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -142,7 +337,6 @@ const createTables = async () => {
             )
         `);
 
-        // Discount Codes Table
         await pool.execute(`
             CREATE TABLE IF NOT EXISTS discount_codes (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -156,29 +350,23 @@ const createTables = async () => {
             )
         `);
 
-        // Migration: Add new columns if they don't exist (for existing tables)
-        // Using individual try-catch blocks for compatibility with older MySQL versions
         const migrations = [
             { column: 'discount_type', sql: `ALTER TABLE discount_codes ADD COLUMN discount_type ENUM('percentage', 'fixed') DEFAULT 'percentage'` },
             { column: 'discount_value', sql: `ALTER TABLE discount_codes ADD COLUMN discount_value DECIMAL(10,2) DEFAULT 0` },
             { column: 'fixed_amount', sql: `ALTER TABLE discount_codes ADD COLUMN fixed_amount DECIMAL(10,2) DEFAULT 0` }
         ];
-        
+
         for (const migration of migrations) {
             try {
                 await pool.execute(migration.sql);
-                console.log(`✅ Added column: ${migration.column}`);
+                console.log(`Added column: ${migration.column}`);
             } catch (migrationErr) {
-                // Column might already exist or other error - check if it's "Duplicate column" error
-                if (migrationErr.code === 'ER_DUP_FIELDNAME' || migrationErr.message.includes('Duplicate column')) {
-                    console.log(`ℹ️  Column ${migration.column} already exists`);
-                } else {
-                    console.log(`⚠️  Migration note for ${migration.column}:`, migrationErr.message);
+                if (migrationErr.code !== 'ER_DUP_FIELDNAME' && !migrationErr.message.includes('Duplicate column')) {
+                    console.log(`Migration note for ${migration.column}:`, migrationErr.message);
                 }
             }
         }
 
-        // Orders Table
         await pool.execute(`
             CREATE TABLE IF NOT EXISTS orders (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -198,13 +386,13 @@ const createTables = async () => {
                 payment_method VARCHAR(50) DEFAULT 'cash',
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                trackingNumber VARCHAR(255) NULL,
                 shippedDate DATETIME NULL,
                 estimatedDelivery DATETIME NULL,
                 deliveredDate DATETIME NULL
             )
         `);
 
-        // Order Items Table
         await pool.execute(`
             CREATE TABLE IF NOT EXISTS order_items (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -219,7 +407,6 @@ const createTables = async () => {
             )
         `);
 
-        // Payment Sessions Table
         await pool.execute(`
             CREATE TABLE IF NOT EXISTS payment_sessions (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -238,9 +425,8 @@ const createTables = async () => {
         await seedAdmin();
         await seedProducts();
         await seedProductColors();
-
     } catch (err) {
-        console.error("Error creating tables:", err.message);
+        console.error('Error creating tables:', err.message);
     }
 };
 
@@ -248,17 +434,14 @@ const seedAdmin = async () => {
     try {
         const [rows] = await pool.execute("SELECT count(*) as count FROM users WHERE role = 'admin'");
         if (rows[0].count === 0) {
-            // Get admin credentials from environment variables or use defaults
             const adminEmail = (process.env.ADMIN_EMAIL || 'admin@SAVX.com').trim();
             const adminPassword = (process.env.ADMIN_PASSWORD || 'admin123').trim();
             const adminName = (process.env.ADMIN_NAME || 'Admin User').trim();
-            
-            console.log(`Seeding admin user: ${adminEmail}`);
             const hashedPassword = await hashPassword(adminPassword);
             const createdAt = new Date().toISOString().slice(0, 19).replace('T', ' ');
-            
+
             await pool.execute(
-                "INSERT INTO users (name, email, password, role, createdAt) VALUES (?, ?, ?, ?, ?)",
+                'INSERT INTO users (name, email, password, role, createdAt) VALUES (?, ?, ?, ?, ?)',
                 [adminName, adminEmail, hashedPassword, 'admin', createdAt]
             );
             console.log(`Admin user seeded successfully: ${adminEmail}`);
@@ -270,9 +453,9 @@ const seedAdmin = async () => {
 
 const seedProducts = async () => {
     try {
-        const [rows] = await pool.execute("SELECT count(*) as count FROM products");
+        const [rows] = await pool.execute('SELECT count(*) as count FROM products');
         if (rows[0].count === 0) {
-            console.log("Seeding products...");
+            console.log('Seeding products...');
             const products = [
                 { name: 'Winter Compression', price: 390, originalPrice: 450, description: 'Comfortable winter compression wear', category: 'compression', image: 'products/Winter Compression/Black Compression.jpeg', stock: 50, discount: 13.33 },
                 { name: 'Sweat Pants', price: 580, originalPrice: 690, description: 'Comfortable sweat pants for daily wear', category: 'pants', image: 'products/sweetpants/Sweet Pants Black.jpeg', stock: 30, discount: 15.94 },
@@ -282,21 +465,21 @@ const seedProducts = async () => {
 
             for (const p of products) {
                 await pool.execute(
-                    "INSERT INTO products (name, price, description, category, image, stock, discount, originalPrice) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    'INSERT INTO products (name, price, description, category, image, stock, discount, originalPrice) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
                     [p.name, p.price, p.description, p.category, p.image, p.stock, p.discount, p.originalPrice]
                 );
             }
         }
     } catch (err) {
-        console.error(err.message);
+        console.error('Error seeding products:', err.message);
     }
 };
 
 const seedProductColors = async () => {
     try {
-        const [rows] = await pool.execute("SELECT count(*) as count FROM product_colors");
+        const [rows] = await pool.execute('SELECT count(*) as count FROM product_colors');
         if (rows[0].count === 0) {
-            console.log("Seeding product colors...");
+            console.log('Seeding product colors...');
             const colors = [
                 { productId: 1, colorName: 'Black', colorCode: '#000000', price: 390, stock: 25, image: 'products/Winter Compression/Black Compression.jpeg' },
                 { productId: 1, colorName: 'White', colorCode: '#FFFFFF', price: 390, stock: 25, image: 'products/Winter Compression/White Compression.jpeg' },
@@ -322,16 +505,17 @@ const seedProductColors = async () => {
 
             for (const c of colors) {
                 await pool.execute(
-                    "INSERT INTO product_colors (productId, colorName, colorCode, price, stock, image) VALUES (?, ?, ?, ?, ?, ?)",
+                    'INSERT INTO product_colors (productId, colorName, colorCode, price, stock, image) VALUES (?, ?, ?, ?, ?, ?)',
                     [c.productId, c.colorName, c.colorCode, c.price, c.stock, c.image]
                 );
             }
         }
     } catch (err) {
-        console.error(err.message);
+        console.error('Error seeding product colors:', err.message);
     }
 };
 
 const getDB = () => pool;
+const getDBEngine = () => dbEngine;
 
-module.exports = { initDB, getDB };
+module.exports = { initDB, getDB, getDBEngine };
