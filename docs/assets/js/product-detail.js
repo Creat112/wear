@@ -76,10 +76,51 @@ function renderProductDetail(product) {
     const displayPrice = selectedColor ? selectedColor.price : (selectedSize ? selectedSize.price : product.price);
     const displayStock = selectedColor ? selectedColor.stock : (selectedSize ? selectedSize.stock : product.stock);
 
+    // Get images for slider - use color images if available, fallback to product image
+    const getImages = () => {
+        if (selectedColor && selectedColor.images && selectedColor.images.length > 0) {
+            return selectedColor.images;
+        }
+        if (selectedColor && selectedColor.image) {
+            return [selectedColor.image];
+        }
+        if (product.image) {
+            return [product.image];
+        }
+        return ['assets/images/placeholder.jpg'];
+    };
+    
+    const currentImages = getImages();
+    let currentImageIndex = 0;
+
     container.innerHTML = `
         <div class="product-detail-grid">
             <div class="product-image-section">
-                <img src="${selectedColor && selectedColor.image ? selectedColor.image : product.image}" alt="${product.name}" class="product-main-image" id="main-image">
+                <div class="image-slider" style="position: relative; width: 100%;">
+                    <img src="${currentImages[0]}" alt="${product.name}" class="product-main-image" id="main-image" style="width: 100%; height: auto; object-fit: cover;">
+                    
+                    ${currentImages.length > 1 ? `
+                        <button id="prev-image" style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); background: rgba(0,0,0,0.5); color: white; border: none; width: 40px; height: 40px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 18px; z-index: 10;">
+                            <i class="ri-arrow-left-s-line"></i>
+                        </button>
+                        <button id="next-image" style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: rgba(0,0,0,0.5); color: white; border: none; width: 40px; height: 40px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 18px; z-index: 10;">
+                            <i class="ri-arrow-right-s-line"></i>
+                        </button>
+                        <div class="image-dots" style="position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; z-index: 10;">
+                            ${currentImages.map((_, i) => `
+                                <span class="image-dot ${i === 0 ? 'active' : ''}" data-index="${i}" style="width: 10px; height: 10px; border-radius: 50%; background: ${i === 0 ? '#8b5cf6' : 'rgba(255,255,255,0.7)'}; cursor: pointer; transition: all 0.2s;"></span>
+                            `).join('')}
+                        </div>
+                    ` : ''}
+                </div>
+                
+                ${currentImages.length > 1 ? `
+                    <div class="thumbnail-strip" style="display: flex; gap: 10px; margin-top: 15px; overflow-x: auto; padding: 5px;">
+                        ${currentImages.map((img, i) => `
+                            <img src="${img}" class="thumbnail ${i === 0 ? 'active' : ''}" data-index="${i}" style="width: 60px; height: 60px; object-fit: cover; border-radius: 8px; cursor: pointer; border: 2px solid ${i === 0 ? '#8b5cf6' : 'transparent'}; transition: all 0.2s;">
+                        `).join('')}
+                    </div>
+                ` : ''}
             </div>
             
             <div class="product-info-section">
@@ -112,6 +153,7 @@ function renderProductDetail(product) {
                                     data-price="${color.price}"
                                     data-stock="${color.stock}"
                                     data-image="${color.image}"
+                                    data-images='${JSON.stringify(color.images || [])}'
                                     style="background-color: ${color.colorCode}; ${color.colorCode === '#FFFFFF' || color.colorCode === '#ffffff' ? 'border: 2px solid #ddd;' : ''}"
                                     title="${color.colorName}"
                                 >
@@ -213,14 +255,20 @@ function attachEventListeners() {
             const image = e.currentTarget.dataset.image;
             const colorCode = e.currentTarget.dataset.colorCode;
 
-            selectedColor = { id: colorId, colorName, price, stock, image, colorCode };
+            const imagesData = e.currentTarget.dataset.images;
+            let colorImages = [];
+            try {
+                colorImages = JSON.parse(imagesData);
+            } catch (e) { colorImages = image ? [image] : []; }
+            
+            selectedColor = { id: colorId, colorName, price, stock, image, colorCode, images: colorImages };
 
             // Update UI
             colorBtns.forEach(b => b.classList.remove('active'));
             e.currentTarget.classList.add('active');
 
             updatePriceAndStock(price, stock);
-            updateImage(image);
+            updateImageSlider(colorImages, image);
             document.getElementById('selected-color-display').textContent = colorName;
         });
     });
@@ -253,6 +301,60 @@ function attachEventListeners() {
             document.getElementById('selected-size-display').textContent = sizeName;
         });
     });
+
+    // Image slider functionality
+    const mainImage = document.getElementById('main-image');
+    const prevBtn = document.getElementById('prev-image');
+    const nextBtn = document.getElementById('next-image');
+    const thumbnails = document.querySelectorAll('.thumbnail');
+    const dots = document.querySelectorAll('.image-dot');
+    
+    if (mainImage && currentImages.length > 1) {
+        const updateImage = (index) => {
+            currentImageIndex = index;
+            mainImage.src = currentImages[index];
+            
+            // Update thumbnails
+            thumbnails.forEach((t, i) => {
+                t.style.borderColor = i === index ? '#8b5cf6' : 'transparent';
+                t.classList.toggle('active', i === index);
+            });
+            
+            // Update dots
+            dots.forEach((d, i) => {
+                d.style.background = i === index ? '#8b5cf6' : 'rgba(255,255,255,0.7)';
+                d.classList.toggle('active', i === index);
+            });
+        };
+        
+        if (prevBtn) {
+            prevBtn.addEventListener('click', () => {
+                const newIndex = currentImageIndex === 0 ? currentImages.length - 1 : currentImageIndex - 1;
+                updateImage(newIndex);
+            });
+        }
+        
+        if (nextBtn) {
+            nextBtn.addEventListener('click', () => {
+                const newIndex = currentImageIndex === currentImages.length - 1 ? 0 : currentImageIndex + 1;
+                updateImage(newIndex);
+            });
+        }
+        
+        thumbnails.forEach((t) => {
+            t.addEventListener('click', () => {
+                const index = parseInt(t.dataset.index);
+                updateImage(index);
+            });
+        });
+        
+        dots.forEach((d) => {
+            d.addEventListener('click', () => {
+                const index = parseInt(d.dataset.index);
+                updateImage(index);
+            });
+        });
+    }
 
     // Quantity controls
     const qtyInput = document.getElementById('quantity');
@@ -324,6 +426,40 @@ function updateImage(imageSrc) {
         setTimeout(() => {
             mainImage.style.opacity = '1';
         }, 100);
+    }
+}
+
+function updateImageSlider(images, fallbackImage) {
+    const imageSection = document.querySelector('.product-image-section');
+    const mainImage = document.getElementById('main-image');
+    const currentImages = images && images.length > 0 ? images : (fallbackImage ? [fallbackImage] : []);
+    
+    if (currentImages.length === 0) return;
+    
+    // Update main image
+    mainImage.src = currentImages[0];
+    
+    // Rebuild thumbnail strip
+    const thumbnailStrip = imageSection.querySelector('.thumbnail-strip');
+    if (thumbnailStrip) {
+        if (currentImages.length > 1) {
+            thumbnailStrip.innerHTML = currentImages.map((img, i) => `
+                <img src="${img}" class="thumbnail ${i === 0 ? 'active' : ''}" data-index="${i}" style="width: 60px; height: 60px; object-fit: cover; border-radius: 8px; cursor: pointer; border: 2px solid ${i === 0 ? '#8b5cf6' : 'transparent'}; transition: all 0.2s;">
+            `).join('');
+            
+            // Re-attach thumbnail events
+            thumbnailStrip.querySelectorAll('.thumbnail').forEach(t => {
+                t.addEventListener('click', () => {
+                    const index = parseInt(t.dataset.index);
+                    document.getElementById('main-image').src = currentImages[index];
+                    thumbnailStrip.querySelectorAll('.thumbnail').forEach((th, i) => {
+                        th.style.borderColor = i === index ? '#8b5cf6' : 'transparent';
+                    });
+                });
+            });
+        } else {
+            thumbnailStrip.style.display = 'none';
+        }
     }
 }
 
