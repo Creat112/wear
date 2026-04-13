@@ -313,48 +313,35 @@ function attachEventListeners() {
     const dots = document.querySelectorAll('.image-dot');
     
     if (mainImage && currentImages.length > 1) {
-        const updateImage = (index) => {
-            currentImageIndex = index;
-            mainImage.src = currentImages[index];
-            
-            // Update thumbnails
-            thumbnails.forEach((t, i) => {
-                t.style.borderColor = i === index ? '#8b5cf6' : 'transparent';
-                t.classList.toggle('active', i === index);
-            });
-            
-            // Update dots
-            dots.forEach((d, i) => {
-                d.style.background = i === index ? '#8b5cf6' : 'rgba(255,255,255,0.7)';
-                d.classList.toggle('active', i === index);
-            });
+        const updateImageDisplay = (index) => {
+            updateSliderImage(index);
         };
         
         if (prevBtn) {
             prevBtn.addEventListener('click', () => {
                 const newIndex = currentImageIndex === 0 ? currentImages.length - 1 : currentImageIndex - 1;
-                updateImage(newIndex);
+                updateSliderImage(newIndex);
             });
         }
         
         if (nextBtn) {
             nextBtn.addEventListener('click', () => {
                 const newIndex = currentImageIndex === currentImages.length - 1 ? 0 : currentImageIndex + 1;
-                updateImage(newIndex);
+                updateSliderImage(newIndex);
             });
         }
         
         thumbnails.forEach((t) => {
             t.addEventListener('click', () => {
                 const index = parseInt(t.dataset.index);
-                updateImage(index);
+                updateSliderImage(index);
             });
         });
         
         dots.forEach((d) => {
             d.addEventListener('click', () => {
                 const index = parseInt(d.dataset.index);
-                updateImage(index);
+                updateSliderImage(index);
             });
         });
     }
@@ -435,34 +422,121 @@ function updateImage(imageSrc) {
 function updateImageSlider(images, fallbackImage) {
     const imageSection = document.querySelector('.product-image-section');
     const mainImage = document.getElementById('main-image');
-    const currentImages = images && images.length > 0 ? images : (fallbackImage ? [fallbackImage] : []);
+    const sliderContainer = imageSection.querySelector('.image-slider');
+    
+    // Update module-level currentImages
+    currentImages = images && images.length > 0 ? images : (fallbackImage ? [fallbackImage] : []);
+    currentImageIndex = 0;
     
     if (currentImages.length === 0) return;
     
     // Update main image
     mainImage.src = currentImages[0];
     
-    // Rebuild thumbnail strip
-    const thumbnailStrip = imageSection.querySelector('.thumbnail-strip');
-    if (thumbnailStrip) {
+    // Update/rebuild slider controls (arrows and dots)
+    if (sliderContainer) {
+        // Remove existing controls
+        const existingPrev = sliderContainer.querySelector('#prev-image');
+        const existingNext = sliderContainer.querySelector('#next-image');
+        const existingDots = sliderContainer.querySelector('.image-dots');
+        if (existingPrev) existingPrev.remove();
+        if (existingNext) existingNext.remove();
+        if (existingDots) existingDots.remove();
+        
+        // Add new controls if multiple images
         if (currentImages.length > 1) {
-            thumbnailStrip.innerHTML = currentImages.map((img, i) => `
-                <img src="${img}" class="thumbnail ${i === 0 ? 'active' : ''}" data-index="${i}" style="width: 60px; height: 60px; object-fit: cover; border-radius: 8px; cursor: pointer; border: 2px solid ${i === 0 ? '#8b5cf6' : 'transparent'}; transition: all 0.2s;">
+            // Add prev/next arrows
+            const prevBtn = document.createElement('button');
+            prevBtn.id = 'prev-image';
+            prevBtn.innerHTML = '<i class="ri-arrow-left-s-line"></i>';
+            prevBtn.style.cssText = 'position: absolute; left: 10px; top: 50%; transform: translateY(-50%); background: rgba(0,0,0,0.5); color: white; border: none; width: 40px; height: 40px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 18px; z-index: 10;';
+            
+            const nextBtn = document.createElement('button');
+            nextBtn.id = 'next-image';
+            nextBtn.innerHTML = '<i class="ri-arrow-right-s-line"></i>';
+            nextBtn.style.cssText = 'position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: rgba(0,0,0,0.5); color: white; border: none; width: 40px; height: 40px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 18px; z-index: 10;';
+            
+            // Add dots
+            const dotsContainer = document.createElement('div');
+            dotsContainer.className = 'image-dots';
+            dotsContainer.style.cssText = 'position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; z-index: 10;';
+            dotsContainer.innerHTML = currentImages.map((_, i) => `
+                <span class="image-dot ${i === 0 ? 'active' : ''}" data-index="${i}" style="width: 10px; height: 10px; border-radius: 50%; background: ${i === 0 ? '#8b5cf6' : 'rgba(255,255,255,0.7)'}; cursor: pointer; transition: all 0.2s;"></span>
             `).join('');
             
-            // Re-attach thumbnail events
-            thumbnailStrip.querySelectorAll('.thumbnail').forEach(t => {
-                t.addEventListener('click', () => {
-                    const index = parseInt(t.dataset.index);
-                    document.getElementById('main-image').src = currentImages[index];
-                    thumbnailStrip.querySelectorAll('.thumbnail').forEach((th, i) => {
-                        th.style.borderColor = i === index ? '#8b5cf6' : 'transparent';
-                    });
+            sliderContainer.appendChild(prevBtn);
+            sliderContainer.appendChild(nextBtn);
+            sliderContainer.appendChild(dotsContainer);
+            
+            // Attach events to new controls
+            prevBtn.addEventListener('click', () => {
+                const newIndex = currentImageIndex === 0 ? currentImages.length - 1 : currentImageIndex - 1;
+                updateSliderImage(newIndex);
+            });
+            
+            nextBtn.addEventListener('click', () => {
+                const newIndex = currentImageIndex === currentImages.length - 1 ? 0 : currentImageIndex + 1;
+                updateSliderImage(newIndex);
+            });
+            
+            dotsContainer.querySelectorAll('.image-dot').forEach(d => {
+                d.addEventListener('click', () => {
+                    const index = parseInt(d.dataset.index);
+                    updateSliderImage(index);
                 });
             });
-        } else {
-            thumbnailStrip.style.display = 'none';
         }
+    }
+    
+    // Rebuild thumbnail strip
+    let thumbnailStrip = imageSection.querySelector('.thumbnail-strip');
+    if (currentImages.length > 1) {
+        if (!thumbnailStrip) {
+            thumbnailStrip = document.createElement('div');
+            thumbnailStrip.className = 'thumbnail-strip';
+            thumbnailStrip.style.cssText = 'display: flex; gap: 10px; margin-top: 15px; overflow-x: auto; padding: 5px;';
+            imageSection.appendChild(thumbnailStrip);
+        }
+        thumbnailStrip.style.display = 'flex';
+        thumbnailStrip.innerHTML = currentImages.map((img, i) => `
+            <img src="${img}" class="thumbnail ${i === 0 ? 'active' : ''}" data-index="${i}" style="width: 60px; height: 60px; object-fit: cover; border-radius: 8px; cursor: pointer; border: 2px solid ${i === 0 ? '#8b5cf6' : 'transparent'}; transition: all 0.2s;">
+        `).join('');
+        
+        // Re-attach thumbnail events
+        thumbnailStrip.querySelectorAll('.thumbnail').forEach(t => {
+            t.addEventListener('click', () => {
+                const index = parseInt(t.dataset.index);
+                updateSliderImage(index);
+            });
+        });
+    } else if (thumbnailStrip) {
+        thumbnailStrip.style.display = 'none';
+    }
+}
+
+function updateSliderImage(index) {
+    currentImageIndex = index;
+    const mainImage = document.getElementById('main-image');
+    if (mainImage && currentImages[index]) {
+        mainImage.src = currentImages[index];
+    }
+    
+    // Update thumbnails
+    const thumbnailStrip = document.querySelector('.thumbnail-strip');
+    if (thumbnailStrip) {
+        thumbnailStrip.querySelectorAll('.thumbnail').forEach((t, i) => {
+            t.style.borderColor = i === index ? '#8b5cf6' : 'transparent';
+            t.classList.toggle('active', i === index);
+        });
+    }
+    
+    // Update dots
+    const dotsContainer = document.querySelector('.image-dots');
+    if (dotsContainer) {
+        dotsContainer.querySelectorAll('.image-dot').forEach((d, i) => {
+            d.style.background = i === index ? '#8b5cf6' : 'rgba(255,255,255,0.7)';
+            d.classList.toggle('active', i === index);
+        });
     }
 }
 
