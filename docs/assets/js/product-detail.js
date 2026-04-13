@@ -6,6 +6,8 @@ import { updateAuthUI, initAuth } from './auth.js';
 let currentProduct = null;
 let selectedColor = null;
 let selectedSize = null;
+let currentImages = [];
+let currentImageIndex = 0;
 
 document.addEventListener('DOMContentLoaded', async () => {
     // Auth UI
@@ -90,8 +92,9 @@ function renderProductDetail(product) {
         return ['assets/images/placeholder.jpg'];
     };
     
-    const currentImages = getImages();
-    let currentImageIndex = 0;
+    // Update module-level variables
+    currentImages = getImages();
+    currentImageIndex = 0;
 
     container.innerHTML = `
         <div class="product-detail-grid">
