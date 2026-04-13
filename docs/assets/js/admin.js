@@ -241,9 +241,19 @@ function addColorRow(data = null) {
 
     fileInput.addEventListener('change', async (e) => {
         if (e.target.files.length > 0) {
-            for (const file of e.target.files) {
+            // Limit to 5 images per color to prevent payload too large
+            const remainingSlots = 5 - images.length;
+            if (remainingSlots <= 0) {
+                alert('Maximum 5 images allowed per color');
+                return;
+            }
+            
+            const filesToProcess = Array.from(e.target.files).slice(0, remainingSlots);
+            
+            for (const file of filesToProcess) {
                 try {
-                    const b64 = await compressImage(file, 400, 400, 0.8);
+                    // Lower quality for color variant images (300x300, 0.6 quality)
+                    const b64 = await compressImage(file, 300, 300, 0.6);
                     const reader = new FileReader();
                     reader.readAsDataURL(b64);
                     reader.onload = () => {
@@ -325,8 +335,8 @@ async function handleProductSubmit(e) {
     }
 
     if (imageInput.files && imageInput.files[0]) {
-        // Compress main image
-        const blob = await compressImage(imageInput.files[0]);
+        // Compress main image with smaller dimensions for large uploads
+        const blob = await compressImage(imageInput.files[0], 600, 600, 0.7);
         imageBase64 = await blobToBase64(blob);
     }
 
