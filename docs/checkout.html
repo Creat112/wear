@@ -87,16 +87,7 @@
                     <h2>Payment Method</h2>
                     <div class="payment-methods">
                         <div class="payment-option">
-                            <input type="radio" id="paymob" name="paymentMethod" value="paymob" checked>
-                            <label for="paymob" class="payment-label">
-                                <div class="payment-icon paymob-icon">
-                                    <i class="ri-bank-card-2-line"></i>
-                                </div>
-                                <span>Credit/Debit Card (Paymob)</span>
-                            </label>
-                        </div>
-                        <div class="payment-option">
-                            <input type="radio" id="cash" name="paymentMethod" value="cash">
+                            <input type="radio" id="cash" name="paymentMethod" value="cash" checked>
                             <label for="cash" class="payment-label">
                                 <div class="payment-icon cash-icon">
                                     <i class="ri-money-dollar-circle-line"></i>
@@ -106,7 +97,7 @@
                         </div>
                     </div>
                     
-                    <div class="card-details hidden">
+                    <div class="card-details hidden" style="display: none !important;">
                         <div class="form-group">
                             <label for="cardNumber">Card Number *</label>
                             <input type="text" id="cardNumber" class="form-control" placeholder="1234 5678 9012 3456" maxlength="19" required>

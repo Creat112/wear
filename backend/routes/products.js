@@ -18,6 +18,7 @@ function normalizeColor(c) {
         ...c,
         price: c.price != null ? Number(c.price) : 0,
         stock: c.stock != null ? Number(c.stock) : 0,
+        images: c.images ? JSON.parse(c.images) : (c.image ? [c.image] : [])
     };
 }
 
@@ -183,9 +184,11 @@ router.post('/', async (req, res) => {
 
         if (colors && Array.isArray(colors) && colors.length > 0) {
             for (const color of colors) {
+                const imagesJson = color.images && color.images.length > 0 ? JSON.stringify(color.images) : null;
+                const firstImage = color.images && color.images.length > 0 ? color.images[0] : (color.image || image);
                 await connection.execute(
-                    "INSERT INTO product_colors (productId, colorName, colorCode, price, stock, image) VALUES (?, ?, ?, ?, ?, ?)",
-                    [productId, color.colorName, color.colorCode, color.price || finalPrice, color.stock || 0, color.image || image]
+                    "INSERT INTO product_colors (productId, colorName, colorCode, price, stock, image, images) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    [productId, color.colorName, color.colorCode, color.price || finalPrice, color.stock || 0, firstImage, imagesJson]
                 );
             }
         }
@@ -245,9 +248,11 @@ router.put('/:id', async (req, res) => {
 
             if (colors.length > 0) {
                 for (const color of colors) {
+                    const imagesJson = color.images && color.images.length > 0 ? JSON.stringify(color.images) : null;
+                    const firstImage = color.images && color.images.length > 0 ? color.images[0] : (color.image || image);
                     await connection.execute(
-                        "INSERT INTO product_colors (productId, colorName, colorCode, price, stock, image) VALUES (?, ?, ?, ?, ?, ?)",
-                        [id, color.colorName, color.colorCode, color.price || price, color.stock || 0, color.image || image]
+                        "INSERT INTO product_colors (productId, colorName, colorCode, price, stock, image, images) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        [id, color.colorName, color.colorCode, color.price || price, color.stock || 0, firstImage, imagesJson]
                     );
                 }
             }

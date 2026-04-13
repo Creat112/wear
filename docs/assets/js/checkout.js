@@ -643,55 +643,50 @@ window.addEventListener("DOMContentLoaded", () => {
             };
 
             try {
-                if (paymentMethod === 'paymob') {
-                    // Handle Paymob payment
-                    await handlePaymobPayment(orderData);
-                } else {
-                    // Handle other payment methods (existing logic)
-                    console.log('About to place order. appliedDiscount:', appliedDiscount);
-                    const result = await api.post('/orders', orderData);
-                    console.log('Order result:', result);
+                // Cash on Delivery - direct order placement
+                console.log('About to place order. appliedDiscount:', appliedDiscount);
+                const result = await api.post('/orders', orderData);
+                console.log('Order result:', result);
 
-                    if (result.success || result.orderId) {
-                        console.log('Order success! Storing discount if exists...');
-                        // Store used discount code to prevent reuse
-                        if (appliedDiscount && appliedDiscount.code) {
-                            const userEmail = document.getElementById("email").value;
-                            const usedDiscountsKey = `usedDiscounts_${userEmail}`;
-                            const usedDiscounts = JSON.parse(localStorage.getItem(usedDiscountsKey) || '[]');
-                            console.log('Storing used discount:', appliedDiscount.code, 'for user:', userEmail);
-                            if (!usedDiscounts.includes(appliedDiscount.code)) {
-                                usedDiscounts.push(appliedDiscount.code);
-                                localStorage.setItem(usedDiscountsKey, JSON.stringify(usedDiscounts));
-                                console.log('Discount stored. Used discounts now:', usedDiscounts);
-                            }
-                            // Clear applied discount
-                            appliedDiscount = null;
-                            localStorage.removeItem('appliedDiscount');
-                        } else {
-                            console.log('No applied discount to store');
+                if (result.success || result.orderId) {
+                    console.log('Order success! Storing discount if exists...');
+                    // Store used discount code to prevent reuse
+                    if (appliedDiscount && appliedDiscount.code) {
+                        const userEmail = document.getElementById("email").value;
+                        const usedDiscountsKey = `usedDiscounts_${userEmail}`;
+                        const usedDiscounts = JSON.parse(localStorage.getItem(usedDiscountsKey) || '[]');
+                        console.log('Storing used discount:', appliedDiscount.code, 'for user:', userEmail);
+                        if (!usedDiscounts.includes(appliedDiscount.code)) {
+                            usedDiscounts.push(appliedDiscount.code);
+                            localStorage.setItem(usedDiscountsKey, JSON.stringify(usedDiscounts));
+                            console.log('Discount stored. Used discounts now:', usedDiscounts);
                         }
-                        
-                        // Verify discount was stored
-                        const verifyKey = `usedDiscounts_${document.getElementById("email").value}`;
-                        const verifyData = localStorage.getItem(verifyKey);
-                        console.log('Verification - localStorage key:', verifyKey, 'value:', verifyData);
-                        
-                        sessionStorage.setItem("currentOrder", JSON.stringify(orderData));
-                        localStorage.removeItem("checkoutItems");
-                        
-                        // Small delay to ensure localStorage is persisted
-                        setTimeout(() => {
-                            window.location.href = "thank-you.html";
-                        }, 100);
+                        // Clear applied discount
+                        appliedDiscount = null;
+                        localStorage.removeItem('appliedDiscount');
                     } else {
-                        alert('Failed to place order: ' + (result.error || 'Unknown error'));
-                        isSubmitting = false; // Reset on error
-                        // Re-enable submit button
-                        if (submitBtn) {
-                            submitBtn.disabled = false;
-                            submitBtn.textContent = 'Place Order';
-                        }
+                        console.log('No applied discount to store');
+                    }
+                    
+                    // Verify discount was stored
+                    const verifyKey = `usedDiscounts_${document.getElementById("email").value}`;
+                    const verifyData = localStorage.getItem(verifyKey);
+                    console.log('Verification - localStorage key:', verifyKey, 'value:', verifyData);
+                    
+                    sessionStorage.setItem("currentOrder", JSON.stringify(orderData));
+                    localStorage.removeItem("checkoutItems");
+                    
+                    // Small delay to ensure localStorage is persisted
+                    setTimeout(() => {
+                        window.location.href = "thank-you.html";
+                    }, 100);
+                } else {
+                    alert('Failed to place order: ' + (result.error || 'Unknown error'));
+                    isSubmitting = false; // Reset on error
+                    // Re-enable submit button
+                    if (submitBtn) {
+                        submitBtn.disabled = false;
+                        submitBtn.textContent = 'Place Order';
                     }
                 }
             } catch (error) {
@@ -707,169 +702,4 @@ window.addEventListener("DOMContentLoaded", () => {
             }
         });
     }
-
-    // Handle Paymob payment
-    async function handlePaymobPayment(orderData) {
-        try {
-            // First create the order
-            const orderResult = await api.post('/orders', orderData);
-            
-            if (!orderResult.success && !orderResult.orderId) {
-                throw new Error('Failed to create order');
-            }
-
-            const orderId = orderResult.orderId || orderResult.id;
-            
-            // Initialize Paymob payment
-            const paymob = new PaymobPayment();
-            
-            // Format order data for Paymob
-            const paymobOrderData = paymob.formatOrderData(
-                { id: orderId, total: orderData.total },
-                {
-                    firstName: orderData.customer.fullName.split(' ')[0],
-                    lastName: orderData.customer.fullName.split(' ')[1] || '',
-                    email: orderData.customer.email,
-                    phoneNumber: orderData.customer.phone,
-                },
-                orderData.items
-            );
-
-            // Create payment session
-            const session = await paymob.createPaymentSession(paymobOrderData);
-            
-            // Store used discount code to prevent reuse (before redirect)
-            if (appliedDiscount && appliedDiscount.code) {
-                const userEmail = orderData.customer.email;
-                const usedDiscountsKey = `usedDiscounts_${userEmail}`;
-                const usedDiscounts = JSON.parse(localStorage.getItem(usedDiscountsKey) || '[]');
-                if (!usedDiscounts.includes(appliedDiscount.code)) {
-                    usedDiscounts.push(appliedDiscount.code);
-                    localStorage.setItem(usedDiscountsKey, JSON.stringify(usedDiscounts));
-                }
-                // Clear applied discount
-                appliedDiscount = null;
-                localStorage.removeItem('appliedDiscount');
-            }
-            
-            // Store order info for result page
-            sessionStorage.setItem("currentOrder", JSON.stringify(orderData));
-            sessionStorage.setItem("pendingOrderId", orderId);
-            localStorage.removeItem("checkoutItems");
-            
-            // Redirect to Paymob payment page
-            window.location.href = session.paymentUrl;
-            
-        } catch (error) {
-            console.error('Paymob payment error:', error);
-            showPaymentError(error.message);
-        }
-    }
-
-    // Show payment error and return to checkout
-    function showPaymentError(message) {
-        // Create error message element
-        const errorDiv = document.createElement('div');
-        errorDiv.className = 'payment-error';
-        errorDiv.style.cssText = `
-            background: #f8d7da;
-            color: #721c24;
-            padding: 15px;
-            border-radius: 5px;
-            margin: 20px 0;
-            border: 1px solid #f5c6cb;
-        `;
-        errorDiv.innerHTML = `
-            <h4 style="margin: 0 0 10px 0;">
-                <i class="ri-error-warning-line"></i> Payment Failed
-            </h4>
-            <p style="margin: 0;">${message}</p>
-            <p style="margin: 10px 0 0 0;">Please try again or choose a different payment method.</p>
-        `;
-
-        // Insert error message before order summary
-        const orderSummary = document.querySelector('.order-summary');
-        orderSummary.parentNode.insertBefore(errorDiv, orderSummary);
-
-        // Scroll to error message
-        errorDiv.scrollIntoView({ behavior: 'smooth' });
-
-        // Remove error after 10 seconds
-        setTimeout(() => {
-            if (errorDiv.parentNode) {
-                errorDiv.parentNode.removeChild(errorDiv);
-            }
-        }, 10000);
-    }
-
-    // Card formatting and validation
-    function initializeCardFormatting() {
-        const cardNumberInput = document.getElementById('cardNumber');
-        const expiryDateInput = document.getElementById('expiryDate');
-        const cvvInput = document.getElementById('cvv');
-
-        // Format card number (add spaces every 4 digits)
-        cardNumberInput.addEventListener('input', function(e) {
-            let value = e.target.value.replace(/\s/g, '');
-            let formattedValue = value.match(/.{1,4}/g)?.join(' ') || value;
-            e.target.value = formattedValue;
-        });
-
-        // Format expiry date (MM/YY)
-        expiryDateInput.addEventListener('input', function(e) {
-            let value = e.target.value.replace(/\D/g, '');
-            if (value.length >= 2) {
-                value = value.slice(0, 2) + '/' + value.slice(2, 4);
-            }
-            e.target.value = value;
-        });
-
-        // Only allow numbers for CVV
-        cvvInput.addEventListener('input', function(e) {
-            e.target.value = e.target.value.replace(/\D/g, '');
-        });
-
-        // Card type detection (for validation purposes)
-        cardNumberInput.addEventListener('input', function(e) {
-            const value = e.target.value.replace(/\s/g, '');
-            // Basic validation - ensure credit card option is selected when typing card number
-            if (value.length > 0) {
-                document.getElementById('creditcard').checked = true;
-                // Trigger the change event to show card details
-                document.getElementById('creditcard').dispatchEvent(new Event('change'));
-            }
-        });
-    }
-
-    // Initialize card formatting
-    initializeCardFormatting();
-    
-    // Payment method toggle
-    function initializePaymentToggle() {
-        const paymobRadio = document.getElementById('paymob');
-        const cashRadio = document.getElementById('cash');
-        const cardDetails = document.querySelector('.card-details');
-        
-        function toggleCardDetails() {
-            // Hide card details for both Paymob and Cash on Delivery
-            // Paymob handles card details on their own page
-            cardDetails.classList.add('hidden');
-            
-            // Remove required attribute from card fields
-            document.getElementById('cardNumber').removeAttribute('required');
-            document.getElementById('expiryDate').removeAttribute('required');
-            document.getElementById('cvv').removeAttribute('required');
-            document.getElementById('cardName').removeAttribute('required');
-        }
-        
-        // Add event listeners
-        paymobRadio.addEventListener('change', toggleCardDetails);
-        cashRadio.addEventListener('change', toggleCardDetails);
-        
-        // Initialize on page load
-        toggleCardDetails();
-    }
-    
-    // Initialize payment toggle
-    initializePaymentToggle();
 });

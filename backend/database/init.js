@@ -193,6 +193,7 @@ const createSQLiteTables = async () => {
             price REAL,
             stock INTEGER DEFAULT 0,
             image TEXT,
+            images TEXT,
             FOREIGN KEY(productId) REFERENCES products(id) ON DELETE CASCADE
         )
     `);
@@ -336,6 +337,7 @@ const createTables = async () => {
                 price DECIMAL(10, 2),
                 stock INT DEFAULT 0,
                 image TEXT,
+                images TEXT,
                 FOREIGN KEY(productId) REFERENCES products(id) ON DELETE CASCADE
             )
         `);
@@ -386,7 +388,8 @@ const createTables = async () => {
             { column: 'fixed_amount', sql: `ALTER TABLE discount_codes ADD COLUMN fixed_amount DECIMAL(10,2) DEFAULT 0` },
             { column: 'cart.sizeId', sql: `ALTER TABLE cart ADD COLUMN sizeId INT NULL` },
             { column: 'order_items.sizeId', sql: `ALTER TABLE order_items ADD COLUMN sizeId INT NULL` },
-            { column: 'order_items.sizeName', sql: `ALTER TABLE order_items ADD COLUMN sizeName VARCHAR(100)` }
+            { column: 'order_items.sizeName', sql: `ALTER TABLE order_items ADD COLUMN sizeName VARCHAR(100)` },
+            { column: 'product_colors.images', sql: `ALTER TABLE product_colors ADD COLUMN images TEXT` }
         ];
 
         for (const migration of migrations) {

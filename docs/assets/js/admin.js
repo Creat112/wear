@@ -205,9 +205,9 @@ function addColorRow(data = null) {
     const container = document.getElementById('colors-container');
     const div = document.createElement('div');
     div.className = 'color-row';
-    div.dataset.existingImage = data ? data.image : ''; // Store existing image for updates
+    div.dataset.images = data && data.images ? JSON.stringify(data.images) : '[]';
 
-    // HTML structure for color row - preserving "Image Upload" for variant
+    // HTML structure for color row with multiple image support
     div.innerHTML = `
         <div style="flex:1; display:flex; flex-direction:column; gap:4px;">
             <input class="c-name" placeholder="Color Name" value="${data ? data.colorName : ''}" required style="width:100%;">
@@ -215,39 +215,52 @@ function addColorRow(data = null) {
         </div>
         <div style="display:flex; flex-direction:column; gap:4px; align-items:center;">
              <input class="c-code" type="color" value="${data ? data.colorCode : '#000000'}" style="width: 40px; padding: 0; cursor: pointer;">
-             <div style="position:relative;">
-                <input class="c-image" type="file" accept="image/*" style="display:none;" id="file-${data ? data.id : Date.now()}">
-                <label for="file-${data ? data.id : Date.now()}" class="btn-small" style="padding:4px 8px; font-size:16px; display:flex; align-items:center; justify-content:center; cursor:pointer;" title="Upload Variant Image">
-                    <i class="ri-image-add-line"></i>
-                </label>
+             <div style="display:flex; gap:4px;">
+                <button type="button" class="btn-small add-image-btn" style="padding:4px 8px; font-size:16px;" title="Add More Images">
+                    <i class="ri-image-add-line"></i>+
+                </button>
              </div>
         </div>
         <div style="width:60px;">
             <input class="c-stock" type="number" placeholder="Qty" value="${data ? data.stock : 0}" required style="width: 100%;">
-            <img class="c-preview" src="${data ? data.image : ''}" style="width:30px; height:30px; margin-top:4px; object-fit:cover; display:${data && data.image ? 'block' : 'none'}; border-radius:4px;">
+            <div class="c-images-preview" style="display:flex; gap:2px; flex-wrap:wrap; margin-top:4px; max-width:60px;"></div>
         </div>
         <button type="button" onclick="this.parentElement.remove()" class="btn-small" style="background: rgba(239, 68, 68, 0.2); color: #ef4444; border:none; height: fit-content; align-self: center;"><i class="ri-delete-bin-line"></i></button>
+        <input type="file" class="c-image-input" accept="image/*" multiple style="display:none;">
     `;
 
-    // Preview Logic for Variant Image
-    const fileInput = div.querySelector('.c-image');
-    const preview = div.querySelector('.c-preview');
+    const fileInput = div.querySelector('.c-image-input');
+    const addImageBtn = div.querySelector('.add-image-btn');
+    const imagesPreview = div.querySelector('.c-images-preview');
+    let images = data && data.images ? [...data.images] : [];
+
+    // Show existing images
+    updateImagesPreview();
+
+    addImageBtn.addEventListener('click', () => fileInput.click());
 
     fileInput.addEventListener('change', async (e) => {
-        if (e.target.files[0]) {
-            try {
-                const b64 = await compressImage(e.target.files[0], 400, 400, 0.8);
-                const reader = new FileReader();
-                reader.readAsDataURL(b64);
-                reader.onload = () => {
-                    preview.src = reader.result;
-                    preview.style.display = 'block';
-                    // We will store this in a data attribute or read it on submit
-                    div.dataset.newImage = reader.result;
-                };
-            } catch (err) { console.error(err); }
+        if (e.target.files.length > 0) {
+            for (const file of e.target.files) {
+                try {
+                    const b64 = await compressImage(file, 400, 400, 0.8);
+                    const reader = new FileReader();
+                    reader.readAsDataURL(b64);
+                    reader.onload = () => {
+                        images.push(reader.result);
+                        div.dataset.images = JSON.stringify(images);
+                        updateImagesPreview();
+                    };
+                } catch (err) { console.error(err); }
+            }
         }
     });
+
+    function updateImagesPreview() {
+        imagesPreview.innerHTML = images.slice(0, 3).map((img, i) => 
+            `<img src="${img}" style="width:18px; height:18px; object-fit:cover; border-radius:2px; ${i === 2 && images.length > 3 ? 'opacity:0.5;' : ''}">`
+        ).join('') + (images.length > 3 ? `<span style="font-size:10px; color:#94a3b8;">+${images.length-3}</span>` : '');
+    }
 
     container.appendChild(div);
 }
@@ -325,15 +338,19 @@ async function handleProductSubmit(e) {
         const cPrice = parseFloat(row.querySelector('.c-price').value);
         const cStock = parseInt(row.querySelector('.c-stock').value) || 0;
 
-        // Image logic: New Upload > Existing Data > Empty
-        let cImage = row.dataset.newImage || row.dataset.existingImage || '';
+        // Images array from dataset
+        let cImages = [];
+        try {
+            cImages = JSON.parse(row.dataset.images || '[]');
+        } catch (e) { cImages = []; }
 
         colors.push({
             colorName: row.querySelector('.c-name').value,
             colorCode: row.querySelector('.c-code').value,
             stock: cStock,
             price: cPrice,
-            image: cImage
+            images: cImages,
+            image: cImages[0] || '' // Keep first image for backward compatibility
         });
     }
 
