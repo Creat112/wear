@@ -1,8 +1,48 @@
-import { api } from './api.js';
+import {
+    api,
+    getAccessToken,
+    setAccessToken,
+    clearAuthStorage,
+    refreshAccessToken
+} from './api.js';
 
-// Initialize authentication
+const getStoredUser = () => {
+    try {
+        return JSON.parse(
+            localStorage.getItem('currentUser') ||
+            sessionStorage.getItem('currentUser') ||
+            'null'
+        );
+    } catch (error) {
+        return null;
+    }
+};
+
+const storeUser = (user, remember = false) => {
+    localStorage.removeItem('currentUser');
+    sessionStorage.removeItem('currentUser');
+    (remember ? localStorage : sessionStorage).setItem('currentUser', JSON.stringify(user));
+};
+
+// Restore the user from the HttpOnly refresh cookie when a page opens in a
+// new tab or after the short-lived access token has been cleared.
+const restoreSession = async () => {
+    const storedUser = getStoredUser();
+    if (!storedUser && !getAccessToken()) return null;
+    if (getAccessToken() && storedUser) return storedUser;
+
+    const result = await refreshAccessToken();
+    if (result?.user) {
+        storeUser(result.user, Boolean(localStorage.getItem('currentUser')));
+        return result.user;
+    }
+
+    if (storedUser) clearAuthStorage();
+    return null;
+};
+
 const initAuth = () => {
-    const currentUser = JSON.parse(localStorage.getItem('currentUser'));
+    const currentUser = getStoredUser();
     if (currentUser) updateAuthUI(currentUser);
 
     const loginForm = document.getElementById('login-form');
@@ -24,34 +64,23 @@ const handleLogin = async (e) => {
     }
 
     try {
-        const user = await api.post('/auth/login', { email, password });
-        finishLogin(user, rememberMe);
+        const result = await api.post('/auth/login', { email, password, rememberMe });
+        finishLogin(result.user, result.accessToken, rememberMe);
     } catch (error) {
         console.error('Login error:', error);
         alert(error.message || 'Login failed');
     }
 };
 
-
-const finishLogin = (user, remember) => {
-    console.log("Finishing login. User:", user);
-    if (remember) {
-        localStorage.setItem('currentUser', JSON.stringify(user));
-    } else {
-        sessionStorage.setItem('currentUser', JSON.stringify(user));
-    }
-
+const finishLogin = (user, accessToken, remember = false) => {
+    setAccessToken(accessToken);
+    storeUser(user, remember);
     updateAuthUI(user);
-    alert('Login successful!');
 
-    console.log("Checking role:", user.role);
-    if (user.role === 'admin') {
-        console.log("Redirecting to admin.html");
-        setTimeout(() => window.location.href = 'admin.html', 1000);
-    } else {
-        console.log("Redirecting to index.html");
-        setTimeout(() => window.location.href = 'index.html', 1000);
-    }
+    alert('Login successful!');
+    setTimeout(() => {
+        window.location.href = user.role === 'admin' ? 'admin.html' : 'index.html';
+    }, 1000);
 };
 
 const handleSignup = async (e) => {
@@ -67,14 +96,9 @@ const handleSignup = async (e) => {
     }
 
     try {
-        const user = await api.post('/auth/signup', { name: fullname, email, password });
-
-        // Auto login after signup
-        localStorage.setItem('currentUser', JSON.stringify(user));
-        updateAuthUI(user);
-
+        const result = await api.post('/auth/signup', { name: fullname, email, password });
+        finishLogin(result.user, result.accessToken, true);
         alert('Account created successfully!');
-        setTimeout(() => window.location.href = 'index.html', 1000);
     } catch (error) {
         console.error('Signup error:', error);
         alert(error.message || 'Signup failed');
@@ -86,17 +110,28 @@ const updateAuthUI = (user) => {
     if (user && loginLink) {
         loginLink.textContent = `Hi, ${user.name}`;
         loginLink.href = '#';
-        loginLink.addEventListener('click', (e) => {
+        loginLink.onclick = async (e) => {
             e.preventDefault();
-            if (confirm('Logout?')) logout();
-        });
+            if (confirm('Logout?')) await logout();
+        };
     }
 };
 
-const logout = () => {
-    localStorage.removeItem('currentUser');
-    sessionStorage.removeItem('currentUser');
-    window.location.href = 'index.html';
+const logout = async () => {
+    try {
+        await api.post('/auth/logout');
+    } catch (error) {
+        console.error('Logout error:', error);
+    } finally {
+        clearAuthStorage();
+        window.location.href = 'index.html';
+    }
 };
 
-export { initAuth, logout, updateAuthUI };
+export {
+    initAuth,
+    logout,
+    updateAuthUI,
+    restoreSession,
+    getStoredUser
+};

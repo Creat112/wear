@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { getDB } = require('../database/init');
+const { authenticateJWT, requireAdmin } = require('../middleware/auth');
 
 // MySQL returns DECIMAL columns as strings — cast them to JS numbers
 function normalizeProduct(p) {
@@ -266,7 +267,7 @@ router.get('/:id', async (req, res) => {
 });
 
 // Create Product with color and size variants
-router.post('/', async (req, res) => {
+router.post('/', authenticateJWT, requireAdmin, async (req, res) => {
     const { name, price, description, category, image, stock, discount, originalPrice, colors, sizes } = req.body;
     const pool = getDB();
 
@@ -325,7 +326,7 @@ router.post('/', async (req, res) => {
 });
 
 // Update Product with color and size variants
-router.put('/:id', async (req, res) => {
+router.put('/:id', authenticateJWT, requireAdmin, async (req, res) => {
     const { name, price, description, category, image, stock, disabled, discount, originalPrice, colors, sizes } = req.body;
     const { id } = req.params;
     
@@ -401,7 +402,7 @@ router.put('/:id', async (req, res) => {
 });
 
 // Delete Product
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', authenticateJWT, requireAdmin, async (req, res) => {
     const pool = getDB();
     try {
         await pool.execute("DELETE FROM products WHERE id = ?", [req.params.id]);

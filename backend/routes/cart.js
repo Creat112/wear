@@ -1,10 +1,12 @@
 const express = require('express');
 const router = express.Router();
 const { getDB } = require('../database/init');
+const { authenticateJWT } = require('../middleware/auth');
+
+router.use(authenticateJWT);
 
 // Get cart API with color and size information
 router.get('/', async (req, res) => {
-    const { userId } = req.query; 
     const pool = getDB();
 
     const query = `
@@ -23,7 +25,7 @@ router.get('/', async (req, res) => {
     }
 
     try {
-        const [rows] = await pool.execute(query, [userId]);
+        const [rows] = await pool.execute(query, [req.user.id]);
         const normalized = rows.map(r => ({
             ...r,
             price: r.price != null ? Number(r.price) : 0,
@@ -42,9 +44,10 @@ router.get('/', async (req, res) => {
 
 // Add to cart with stock validation
 router.post('/', async (req, res) => {
-    const { productId, quantity, userId, colorId, sizeId } = req.body;
-    if (!productId || !userId) {
-        return res.status(400).json({ error: 'ProductId and UserId required' });
+    const { productId, quantity, colorId, sizeId } = req.body;
+    const userId = req.user.id;
+    if (!productId) {
+        return res.status(400).json({ error: 'ProductId required' });
     }
 
     const pool = getDB();
@@ -57,7 +60,7 @@ router.post('/', async (req, res) => {
             let variantType = '';
             
             if (sizeId) {
-                const [sizeRows] = await pool.execute("SELECT stock FROM product_sizes WHERE id = ?", [sizeId]);
+                    const [sizeRows] = await pool.execute("SELECT stock FROM product_sizes WHERE id = ? AND productId = ?", [sizeId, productId]);
                 if (sizeRows.length > 0) {
                     variantStock = sizeRows[0].stock;
                     variantType = 'size';
@@ -65,7 +68,7 @@ router.post('/', async (req, res) => {
             }
             
             if (colorId) {
-                const [colorRows] = await pool.execute("SELECT stock FROM product_colors WHERE id = ?", [colorId]);
+                    const [colorRows] = await pool.execute("SELECT stock FROM product_colors WHERE id = ? AND productId = ?", [colorId, productId]);
                 if (colorRows.length > 0) {
                     variantStock = colorRows[0].stock;
                     variantType = 'color';
@@ -146,8 +149,8 @@ router.put('/:id', async (req, res) => {
             SELECT c.*, pc.stock 
             FROM cart c 
             LEFT JOIN product_colors pc ON c.colorId = pc.id 
-            WHERE c.id = ?
-        `, [id]);
+            WHERE c.id = ? AND c.userId = ?
+        `, [id, req.user.id]);
         
         const cartItem = cartRows[0];
 
@@ -162,7 +165,7 @@ router.put('/:id', async (req, res) => {
             });
         }
 
-        await pool.execute("UPDATE cart SET quantity = ? WHERE id = ?", [quantity, id]);
+        await pool.execute("UPDATE cart SET quantity = ? WHERE id = ? AND userId = ?", [quantity, id, req.user.id]);
         res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -174,7 +177,7 @@ router.delete('/:id', async (req, res) => {
     const { id } = req.params;
     const pool = getDB();
     try {
-        await pool.execute("DELETE FROM cart WHERE id = ?", [id]);
+        await pool.execute("DELETE FROM cart WHERE id = ? AND userId = ?", [id, req.user.id]);
         res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -183,12 +186,9 @@ router.delete('/:id', async (req, res) => {
 
 // Clear cart
 router.delete('/', async (req, res) => {
-    const { userId } = req.query;
-    if (!userId) return res.status(400).json({ error: 'UserId required' });
-
     const pool = getDB();
     try {
-        await pool.execute("DELETE FROM cart WHERE userId = ?", [userId]);
+        await pool.execute("DELETE FROM cart WHERE userId = ?", [req.user.id]);
         res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: err.message });

@@ -136,7 +136,7 @@ window.addEventListener("DOMContentLoaded", () => {
             }
 
             try {
-                const res = await api.post('/discounts/validate', { code, userEmail, userPhone });
+                const res = await api.post('/discounts/validate', { code });
                 if (res.success) {
                     appliedDiscount = { 
                         code: res.code, 

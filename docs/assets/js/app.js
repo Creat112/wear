@@ -1,5 +1,5 @@
 // assets/js/app.js
-import { updateAuthUI, initAuth } from './auth.js';
+import { updateAuthUI, initAuth, restoreSession } from './auth.js';
 import { getProductsPage, getProductMeta } from './products.js';
 import { addToCart, updateCartCount, getCartItems, updateCartQuantity, removeFromCart } from './cart.js';
 
@@ -12,7 +12,7 @@ let searchDebounceTimer;
 document.addEventListener('DOMContentLoaded', async () => {
     // Auth UI
     initAuth();
-    const currentUser = JSON.parse(localStorage.getItem('currentUser') || sessionStorage.getItem('currentUser'));
+    const currentUser = await restoreSession();
     updateAuthUI(currentUser);
 
     // Mobile menu

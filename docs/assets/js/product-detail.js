@@ -1,7 +1,7 @@
 // product-detail.js
 import { api } from './api.js';
 import { addToCart, updateCartCount } from './cart.js';
-import { updateAuthUI, initAuth } from './auth.js';
+import { updateAuthUI, initAuth, restoreSession } from './auth.js';
 
 let currentProduct = null;
 let selectedColor = null;
@@ -12,7 +12,7 @@ let currentImageIndex = 0;
 document.addEventListener('DOMContentLoaded', async () => {
     // Auth UI
     initAuth();
-    const currentUser = JSON.parse(localStorage.getItem('currentUser') || sessionStorage.getItem('currentUser'));
+    const currentUser = await restoreSession();
     updateAuthUI(currentUser);
 
     // Mobile menu

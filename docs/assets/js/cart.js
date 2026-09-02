@@ -1,20 +1,14 @@
-import { api } from './api.js';
-
-const getUserId = () => {
-    const user = JSON.parse(localStorage.getItem('currentUser') || sessionStorage.getItem('currentUser'));
-    return user ? user.id : null;
-};
+import { api, getAccessToken } from './api.js';
 
 export const addToCart = async (productId, quantity = 1, colorId = null, sizeId = null) => {
-    const userId = getUserId();
-    if (!userId) {
+    if (!getAccessToken()) {
         alert("Please login to add items to cart");
         window.location.href = 'login.html';
         return;
     }
 
     try {
-        await api.post('/cart', { productId, quantity, userId, colorId, sizeId });
+        await api.post('/cart', { productId, quantity, colorId, sizeId });
         await updateCartCount();
     } catch (error) {
         console.error('Add to cart error:', error);
@@ -24,11 +18,9 @@ export const addToCart = async (productId, quantity = 1, colorId = null, sizeId 
 };
 
 export const getCartItems = async () => {
-    const userId = getUserId();
-    if (!userId) return [];
-
+    if (!getAccessToken()) return [];
     try {
-        return await api.get(`/cart?userId=${userId}`);
+        return await api.get('/cart');
     } catch (error) {
         console.error('Get cart error:', error);
         return [];
@@ -52,10 +44,8 @@ export const removeFromCart = async (id) => {
 };
 
 export const clearCart = async () => {
-    const userId = getUserId();
-    if (!userId) return;
     try {
-        await api.delete(`/cart?userId=${userId}`);
+        await api.delete('/cart');
     } catch (error) {
         console.error('Clear cart error:', error);
     }

@@ -170,6 +170,19 @@ const createSQLiteTables = async () => {
     `);
 
     await pool.execute(`
+        CREATE TABLE IF NOT EXISTS refresh_tokens (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            userId INTEGER NOT NULL,
+            tokenHash TEXT NOT NULL UNIQUE,
+            expiresAt TEXT NOT NULL,
+            revokedAt TEXT NULL,
+            createdAt TEXT NOT NULL,
+            lastUsedAt TEXT NULL,
+            FOREIGN KEY(userId) REFERENCES users(id) ON DELETE CASCADE
+        )
+    `);
+
+    await pool.execute(`
         CREATE TABLE IF NOT EXISTS products (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT,
@@ -242,6 +255,7 @@ const createSQLiteTables = async () => {
         CREATE TABLE IF NOT EXISTS orders (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             orderNumber TEXT UNIQUE NOT NULL,
+            userId INTEGER NULL,
             total REAL NOT NULL,
             discount_code TEXT NULL,
             discount_amount REAL DEFAULT 0,
@@ -263,6 +277,11 @@ const createSQLiteTables = async () => {
             deliveredDate TEXT NULL
         )
     `);
+    try {
+        await pool.execute('ALTER TABLE orders ADD COLUMN userId INTEGER NULL');
+    } catch (err) {
+        // Existing SQLite databases already have this additive column.
+    }
 
     await pool.execute(`
         CREATE TABLE IF NOT EXISTS order_items (
@@ -310,6 +329,19 @@ const createTables = async () => {
                 password VARCHAR(255),
                 role VARCHAR(50) DEFAULT 'customer',
                 createdAt DATETIME
+            )
+        `);
+
+        await pool.execute(`
+            CREATE TABLE IF NOT EXISTS refresh_tokens (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                userId INT NOT NULL,
+                tokenHash CHAR(64) NOT NULL UNIQUE,
+                expiresAt DATETIME NOT NULL,
+                revokedAt DATETIME NULL,
+                createdAt DATETIME NOT NULL,
+                lastUsedAt DATETIME NULL,
+                FOREIGN KEY(userId) REFERENCES users(id) ON DELETE CASCADE
             )
         `);
 
@@ -422,6 +454,7 @@ const createTables = async () => {
             CREATE TABLE IF NOT EXISTS orders (
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 orderNumber VARCHAR(255) UNIQUE NOT NULL,
+                userId INT NULL,
                 total DECIMAL(10, 2) NOT NULL,
                 discount_code VARCHAR(50) NULL,
                 discount_amount DECIMAL(10, 2) DEFAULT 0,
@@ -443,6 +476,13 @@ const createTables = async () => {
                 deliveredDate DATETIME NULL
             )
         `);
+        try {
+            await pool.execute('ALTER TABLE orders ADD COLUMN userId INT NULL');
+        } catch (migrationErr) {
+            if (migrationErr.code !== 'ER_DUP_FIELDNAME' && !migrationErr.message.includes('Duplicate column') && !migrationErr.message.includes('duplicate')) {
+                console.log('Migration note for orders.userId:', migrationErr.message);
+            }
+        }
 
         await pool.execute(`
             CREATE TABLE IF NOT EXISTS order_items (
@@ -495,10 +535,10 @@ const seedAdmin = async () => {
 
         if (configuredUser) {
             await pool.execute(
-                "UPDATE users SET name = ?, password = ?, role = 'admin' WHERE id = ?",
-                [adminName, hashedPassword, configuredUser.id]
+                "UPDATE users SET name = ?, role = 'admin' WHERE id = ?",
+                [adminName, configuredUser.id]
             );
-            console.log(`Admin user synced from environment: ${adminEmail}`);
+            console.log(`Admin user synced without changing password: ${adminEmail}`);
             return;
         }
 
@@ -507,10 +547,10 @@ const seedAdmin = async () => {
 
         if (existingAdmin) {
             await pool.execute(
-                "UPDATE users SET name = ?, email = ?, password = ?, role = 'admin' WHERE id = ?",
-                [adminName, adminEmail, hashedPassword, existingAdmin.id]
+                "UPDATE users SET name = ?, role = 'admin' WHERE id = ?",
+                [adminName, existingAdmin.id]
             );
-            console.log(`Existing admin user updated from environment: ${adminEmail}`);
+            console.log('Existing admin preserved without changing password or email.');
             return;
         }
 

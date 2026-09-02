@@ -2,9 +2,10 @@ const express = require('express');
 const router = express.Router();
 const { getDB } = require('../database/init');
 const { sendOrderEmail, sendCustomerOrderEmailWithTracking, sendOrderStatusUpdateEmail } = require('../utils/email');
+const { authenticateJWT, requireAdmin } = require('../middleware/auth');
 
 // Get all orders (Admin)
-router.get('/', async (req, res) => {
+router.get('/', authenticateJWT, requireAdmin, async (req, res) => {
     const pool = getDB();
     const query = `
         SELECT o.*, i.productId, i.quantity, i.price, i.productName, i.colorId, i.colorName, i.sizeId, i.sizeName,
@@ -66,15 +67,96 @@ router.get('/', async (req, res) => {
     }
 });
 
+// Get only the authenticated user's orders.
+router.get('/mine', authenticateJWT, async (req, res) => {
+    const pool = getDB();
+    try {
+        const [rows] = await pool.execute(`
+            SELECT o.*, i.productId, i.quantity, i.price, i.productName, i.colorId, i.colorName, i.sizeId, i.sizeName,
+                   p.image as productImage
+            FROM orders o
+            LEFT JOIN order_items i ON o.id = i.orderId
+            LEFT JOIN products p ON i.productId = p.id
+            WHERE o.userId = ?
+            ORDER BY o.date DESC
+        `, [req.user.id]);
+
+        const ordersMap = new Map();
+        rows.forEach(row => {
+            if (!ordersMap.has(row.id)) {
+                ordersMap.set(row.id, {
+                    id: row.id,
+                    orderNumber: row.orderNumber,
+                    total: Number(row.total),
+                    discountCode: row.discount_code,
+                    discountAmount: Number(row.discount_amount),
+                    status: row.status,
+                    date: row.date,
+                    paymentMethod: row.payment_method,
+                    customer: {
+                        fullName: row.customerName,
+                        email: row.customerEmail,
+                        phone: row.customerPhone
+                    },
+                    shipping: {
+                        address: row.shippingAddress,
+                        city: row.shippingCity,
+                        governorate: row.shippingGov,
+                        notes: row.notes
+                    },
+                    items: []
+                });
+            }
+            if (row.productId) {
+                ordersMap.get(row.id).items.push({
+                    productId: row.productId,
+                    quantity: Number(row.quantity),
+                    price: Number(row.price),
+                    name: row.productName,
+                    colorId: row.colorId,
+                    colorName: row.colorName,
+                    sizeId: row.sizeId,
+                    sizeName: row.sizeName,
+                    productImage: row.productImage
+                });
+            }
+        });
+
+        res.json(Array.from(ordersMap.values()));
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // Create new order with stock validation
-router.post('/', async (req, res) => {
-    const { customer, shipping, items, total, orderNumber, date, paymentMethod = 'cash', discountCode = null, discountAmount = 0 } = req.body;
+router.post('/', authenticateJWT, async (req, res) => {
+    const {
+        customer: customerInput = {},
+        shipping,
+        items,
+        total,
+        orderNumber,
+        date,
+        paymentMethod = 'cash',
+        discountCode = null,
+        discountAmount = 0
+    } = req.body;
 
     if (!items || items.length === 0) {
         return res.status(400).json({ error: 'No items in order' });
     }
 
     const pool = getDB();
+    const [userRows] = await pool.execute('SELECT id, name, email FROM users WHERE id = ?', [req.user.id]);
+    if (!userRows[0]) {
+        return res.status(401).json({ error: 'User account not found' });
+    }
+    const customer = {
+        ...customerInput,
+        fullName: userRows[0].name,
+        email: userRows[0].email
+    };
+    const userId = userRows[0].id;
     const connection = await pool.getConnection();
 
     try {
@@ -139,10 +221,10 @@ router.post('/', async (req, res) => {
 
         // Proceed with order creation
         const [result] = await connection.execute(`
-            INSERT INTO orders (orderNumber, total, discount_code, discount_amount, status, date, customerName, customerEmail, customerPhone, shippingAddress, shippingCity, shippingGov, notes, payment_method)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO orders (orderNumber, userId, total, discount_code, discount_amount, status, date, customerName, customerEmail, customerPhone, shippingAddress, shippingCity, shippingGov, notes, payment_method)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `, [
-            orderNumber, total, discountCode, discountAmount, 'pending', mysqlDate, 
+            orderNumber, userId, total, discountCode, discountAmount, 'pending', mysqlDate,
             customer.fullName, customer.email, customer.phone, 
             shipping.address, shipping.city, shipping.governorate, shipping.notes, paymentMethod
         ]);
@@ -283,7 +365,7 @@ router.get('/track/:orderNumber', async (req, res) => {
 });
 
 // Update order status with tracking information
-router.put('/:id', async (req, res) => {
+router.put('/:id', authenticateJWT, requireAdmin, async (req, res) => {
     const { status, trackingNumber, estimatedDelivery } = req.body;
     const { id } = req.params;
     const pool = getDB();
@@ -334,7 +416,7 @@ router.put('/:id', async (req, res) => {
 });
 
 // Delete order
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', authenticateJWT, requireAdmin, async (req, res) => {
     const { id } = req.params;
     const pool = getDB();
 

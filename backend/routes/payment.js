@@ -10,10 +10,11 @@ const {
 } = require('../utils/paymobUtils');
 const { getDB } = require('../database/init');
 const { sendOrderEmail, sendCustomerOrderEmailWithTracking } = require('../utils/email');
+const { authenticateJWT, requireAdmin } = require('../middleware/auth');
 
 // Paymob Payment Routes
 
-router.post('/paymob/create', async (req, res) => {
+router.post('/paymob/create', authenticateJWT, async (req, res) => {
     try {
         const { 
             amount, 
@@ -29,6 +30,15 @@ router.post('/paymob/create', async (req, res) => {
 
         if (!orderId) {
             return res.status(400).json({ error: 'Order ID is required' });
+        }
+
+        const pool = getDB();
+        const [ownedOrders] = await pool.execute(
+            'SELECT id FROM orders WHERE id = ? AND userId = ?',
+            [orderId, req.user.id]
+        );
+        if (!ownedOrders[0] && req.user.role !== 'admin') {
+            return res.status(403).json({ error: 'You cannot create payment for this order' });
         }
 
         const amountInCents = Math.round(amount * 100);
@@ -71,7 +81,6 @@ router.post('/paymob/create', async (req, res) => {
 
         const paymentUrl = getPaymentUrl(paymentToken);
 
-        const pool = getDB();
         await pool.execute(`
             INSERT INTO payment_sessions 
             (order_id, paymob_order_id, payment_token, amount, status, created_at) 
@@ -178,7 +187,7 @@ router.post('/paymob/webhook', express.raw({ type: 'application/json' }), async 
     }
 });
 
-router.get('/paymob/status/:orderId', async (req, res) => {
+router.get('/paymob/status/:orderId', authenticateJWT, async (req, res) => {
     try {
         const { orderId } = req.params;
         const pool = getDB();
@@ -187,8 +196,8 @@ router.get('/paymob/status/:orderId', async (req, res) => {
             SELECT ps.*, o.status as order_status 
             FROM payment_sessions ps
             LEFT JOIN orders o ON ps.order_id = o.id
-            WHERE ps.order_id = ?
-        `, [orderId]);
+            WHERE ps.order_id = ? AND (o.userId = ? OR ? = 'admin')
+        `, [orderId, req.user.id, req.user.role]);
         const row = rows[0];
 
         if (!row) {

@@ -1,8 +1,9 @@
 // Premium Admin JS for Secondary Site (API Integrated)
 import { api } from './api.js';
+import { restoreSession, logout } from './auth.js';
 
 // Auth Check
-const currentUser = JSON.parse(sessionStorage.getItem('currentUser') || localStorage.getItem('currentUser'));
+const currentUser = await restoreSession();
 if (!currentUser || currentUser.role !== 'admin') {
     window.location.href = 'login.html';
     throw new Error('Not authenticated or authorized');
@@ -16,11 +17,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Logout
     const logoutBtn = document.getElementById('logoutBtn');
     if (logoutBtn) {
-        logoutBtn.addEventListener('click', () => {
-            localStorage.removeItem('currentUser');
-            sessionStorage.removeItem('currentUser');
-            window.location.href = 'login.html';
-        });
+        logoutBtn.addEventListener('click', () => logout());
     }
 
     // Export CSV

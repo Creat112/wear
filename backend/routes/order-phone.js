@@ -1,9 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const { getDB } = require('../database/init');
+const { authenticateJWT } = require('../middleware/auth');
 
 // Get orders by phone number
-router.get('/phone/:phone', async (req, res) => {
+router.get('/phone/:phone', authenticateJWT, async (req, res) => {
     const { phone } = req.params;
     const pool = getDB();
 
@@ -15,12 +16,12 @@ router.get('/phone/:phone', async (req, res) => {
         SELECT o.*, i.productId, i.quantity, i.price, i.productName, i.colorId, i.colorName
         FROM orders o 
         LEFT JOIN order_items i ON o.id = i.orderId
-        WHERE o.customerPhone = ?
+        WHERE o.customerPhone = ? AND o.userId = ?
         ORDER BY o.date DESC
     `;
 
     try {
-        const [rows] = await pool.execute(query, [phone]);
+        const [rows] = await pool.execute(query, [phone, req.user.id]);
 
         const ordersMap = new Map();
         rows.forEach(row => {
