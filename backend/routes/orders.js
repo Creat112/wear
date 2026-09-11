@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { getDB } = require('../database/init');
 const { sendOrderEmail, sendCustomerOrderEmailWithTracking, sendOrderStatusUpdateEmail } = require('../utils/email');
-const { authenticateJWT, requireAdmin } = require('../middleware/auth');
+const { authenticateJWT, optionalAuthenticateJWT, requireAdmin } = require('../middleware/auth');
 
 // Get all orders (Admin)
 router.get('/', authenticateJWT, requireAdmin, async (req, res) => {
@@ -303,7 +303,7 @@ router.post('/', authenticateJWT, async (req, res) => {
 });
 
 // Track order by order number
-router.get('/track/:orderNumber', async (req, res) => {
+router.get('/track/:orderNumber', optionalAuthenticateJWT, async (req, res) => {
     const { orderNumber } = req.params;
     const pool = getDB();
     
@@ -322,6 +322,12 @@ router.get('/track/:orderNumber', async (req, res) => {
         }
 
         const row = rows[0]; // first row just for order meta
+        const isOwner = Boolean(req.user) &&
+            (req.user.role === 'admin' || Number(row.userId) === Number(req.user.id));
+        if (req.user && !isOwner) {
+            return res.status(403).json({ error: 'You cannot access this order' });
+        }
+
         const items = rows.filter(r => r.productId != null).map(item => ({
             productId: item.productId,
             quantity: item.quantity,
@@ -340,6 +346,7 @@ router.get('/track/:orderNumber', async (req, res) => {
             discountAmount: Number(row.discount_amount),
             status: row.status,
             date: row.date,
+            paymentMethod: row.payment_method,
             trackingNumber: row.trackingNumber, // Ensure trackingNumber column is present in MySQL schema if used here, or we can ignore
             estimatedDelivery: row.estimatedDelivery,
             shippedDate: row.shippedDate,
@@ -357,6 +364,13 @@ router.get('/track/:orderNumber', async (req, res) => {
             },
             items: items
         };
+
+        // Anonymous tracking remains available, but private contact and
+        // delivery details are only returned to the order owner or an admin.
+        if (!isOwner) {
+            delete order.customer;
+            delete order.shipping;
+        }
 
         res.json(order);
     } catch (err) {

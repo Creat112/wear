@@ -282,6 +282,14 @@ const createSQLiteTables = async () => {
     } catch (err) {
         // Existing SQLite databases already have this additive column.
     }
+    await pool.execute(`
+        UPDATE orders
+        SET userId = (
+            SELECT id FROM users
+            WHERE users.email = orders.customerEmail
+        )
+        WHERE userId IS NULL AND customerEmail IS NOT NULL
+    `);
 
     await pool.execute(`
         CREATE TABLE IF NOT EXISTS order_items (
@@ -483,6 +491,12 @@ const createTables = async () => {
                 console.log('Migration note for orders.userId:', migrationErr.message);
             }
         }
+        await pool.execute(`
+            UPDATE orders o
+            INNER JOIN users u ON u.email = o.customerEmail
+            SET o.userId = u.id
+            WHERE o.userId IS NULL AND o.customerEmail IS NOT NULL
+        `);
 
         await pool.execute(`
             CREATE TABLE IF NOT EXISTS order_items (

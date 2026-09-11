@@ -20,10 +20,6 @@ router.get('/', async (req, res) => {
         WHERE c.userId = ?
     `;
 
-    if (!userId) {
-        return res.json([]);
-    }
-
     try {
         const [rows] = await pool.execute(query, [req.user.id]);
         const normalized = rows.map(r => ({

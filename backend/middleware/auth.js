@@ -58,6 +58,23 @@ function authenticateJWT(req, res, next) {
     }
 }
 
+function optionalAuthenticateJWT(req, res, next) {
+    const authorization = req.get('authorization') || '';
+    if (!authorization) return next();
+
+    const [scheme, token] = authorization.split(' ');
+    if (scheme !== 'Bearer' || !token) {
+        return res.status(401).json({ error: 'Invalid authorization header' });
+    }
+
+    try {
+        req.user = verifyAccessToken(token);
+        next();
+    } catch (error) {
+        return res.status(401).json({ error: 'Invalid or expired access token' });
+    }
+}
+
 function requireAdmin(req, res, next) {
     if (!req.user) {
         return res.status(401).json({ error: 'Authentication required' });
@@ -135,6 +152,7 @@ module.exports = {
     REFRESH_TOKEN_DAYS,
     REFRESH_COOKIE_NAME,
     authenticateJWT,
+    optionalAuthenticateJWT,
     requireAdmin,
     createAccessToken,
     getRefreshTokenFromRequest,
