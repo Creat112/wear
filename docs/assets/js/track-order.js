@@ -1,4 +1,6 @@
 // Track Order JavaScript
+import { api } from './api.js';
+
 class OrderTracker {
     constructor() {
         this.form = document.getElementById('track-order-form');
@@ -359,25 +361,7 @@ class OrderTracker {
         this.hideError();
 
         try {
-            const url = `/api/orders/phone/${phone}`;
-            console.log('Fetching URL:', url);
-            
-            const response = await fetch(url);
-            console.log('Response status:', response.status);
-            console.log('Response ok:', response.ok);
-            
-            if (!response.ok) {
-                if (response.status === 404) {
-                    this.showError(`No orders found for phone number: ${phone}`);
-                } else {
-                    this.showError(`Server error: ${response.status}`);
-                }
-                return;
-            }
-
-            const orders = await response.json();
-            console.log('Orders received:', orders);
-            console.log('Orders length:', orders.length);
+            const orders = await api.get(`/orders/phone/${encodeURIComponent(phone)}`);
             
             if (orders.length === 0) {
                 this.showError(`No orders found for phone number: ${phone}`);
@@ -388,7 +372,11 @@ class OrderTracker {
             this.displayOrderList(orders, phone);
         } catch (error) {
             console.error('Error tracking by phone:', error);
-            this.showError('Failed to track order. Please try again.');
+            if (error.status === 401) {
+                this.showError('Please sign in to find orders associated with your phone number.');
+            } else {
+                this.showError('Failed to track order. Please try again.');
+            }
         } finally {
             this.hideLoading();
         }

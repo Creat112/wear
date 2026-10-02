@@ -207,6 +207,113 @@ test('cart and order reads are scoped to the authenticated account', async () =>
     assert.equal(otherOrders.body.length, 0);
 });
 
+test('checkout creates the order for the authenticated account, ignoring submitted identity', async () => {
+    const owner = await createUser(
+        'Checkout Owner',
+        `security-checkout-owner-${Date.now()}@example.test`
+    );
+    const otherUser = await createUser(
+        'Submitted Identity',
+        `security-checkout-other-${Date.now()}@example.test`
+    );
+    const pool = getDB();
+    const [product] = await pool.execute(
+        'INSERT INTO products (name, price, stock) VALUES (?, ?, ?)',
+        ['Checkout Ownership Product', 40, 5]
+    );
+    const orderNumber = `SECURITY-CHECKOUT-${Date.now()}`;
+
+    const created = await request('/api/orders', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${owner.accessToken}` },
+        body: JSON.stringify({
+            userId: otherUser.user.id,
+            customer: {
+                fullName: 'Submitted Name',
+                email: otherUser.user.email,
+                phone: '01022223333'
+            },
+            shipping: {
+                address: 'Checkout address',
+                city: 'Cairo',
+                governorate: 'Cairo',
+                notes: ''
+            },
+            items: [{
+                productId: product.insertId,
+                quantity: 1,
+                price: 40,
+                name: 'Checkout Ownership Product'
+            }],
+            total: 130,
+            orderNumber,
+            date: new Date().toISOString()
+        })
+    });
+    assert.equal(created.response.status, 201);
+
+    const [orders] = await pool.execute(
+        'SELECT userId, customerName, customerEmail FROM orders WHERE id = ?',
+        [created.body.orderId]
+    );
+    assert.equal(Number(orders[0].userId), Number(owner.user.id));
+    assert.equal(orders[0].customerName, owner.user.name);
+    assert.equal(orders[0].customerEmail, owner.user.email);
+
+    const ownerOrders = await request('/api/orders/mine', {
+        headers: { authorization: `Bearer ${owner.accessToken}` }
+    });
+    assert.equal(ownerOrders.response.status, 200);
+    assert.ok(ownerOrders.body.some(order => order.orderNumber === orderNumber));
+
+    const otherOrders = await request('/api/orders/mine', {
+        headers: { authorization: `Bearer ${otherUser.accessToken}` }
+    });
+    assert.equal(otherOrders.response.status, 200);
+    assert.equal(otherOrders.body.some(order => order.orderNumber === orderNumber), false);
+});
+
+test('phone order lookup only returns orders owned by the authenticated user', async () => {
+    const owner = await createUser(
+        'Phone Order Owner',
+        `security-phone-owner-${Date.now()}@example.test`
+    );
+    const otherUser = await createUser(
+        'Phone Lookup Visitor',
+        `security-phone-other-${Date.now()}@example.test`
+    );
+    const pool = getDB();
+    const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+    const phone = '01033334444';
+    const orderNumber = `SECURITY-PHONE-${Date.now()}`;
+
+    await pool.execute(`
+        INSERT INTO orders
+            (orderNumber, userId, total, status, date, customerName, customerEmail,
+             customerPhone, shippingAddress, shippingCity, shippingGov, notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [
+        orderNumber, owner.user.id, 50, 'pending', now,
+        owner.user.name, owner.user.email, phone,
+        'Private phone lookup address', 'Cairo', 'Cairo', ''
+    ]);
+
+    const withoutAuth = await request(`/api/orders/phone/${phone}`);
+    assert.equal(withoutAuth.response.status, 401);
+
+    const ownerLookup = await request(`/api/orders/phone/${phone}`, {
+        headers: { authorization: `Bearer ${owner.accessToken}` }
+    });
+    assert.equal(ownerLookup.response.status, 200);
+    assert.ok(ownerLookup.body.some(order => order.orderNumber === orderNumber));
+
+    const otherLookup = await request(`/api/orders/phone/${phone}`, {
+        headers: { authorization: `Bearer ${otherUser.accessToken}` }
+    });
+    assert.equal(otherLookup.response.status, 200);
+    assert.equal(otherLookup.body.length, 0);
+});
+
 test('public order tracking omits customer contact and shipping details', async () => {
     const owner = await createUser(
         'Tracking Owner',
