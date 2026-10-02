@@ -5,52 +5,59 @@ const cors = require('cors');
 const path = require('path');
 const { initDB } = require('./database/init');
 
-const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(cors());
-app.set('trust proxy', 1);
-app.use(bodyParser.json({ limit: '50mb' }));
-app.use(bodyParser.urlencoded({ limit: '50mb', extended: true }));
+const createApp = () => {
+    const app = express();
 
-app.use((req, res, next) => {
-    console.log(`${req.method} ${req.url}`);
-    next();
-});
+    app.use(cors());
+    app.set('trust proxy', 1);
+    app.use(bodyParser.json({ limit: '50mb' }));
+    app.use(bodyParser.urlencoded({ limit: '50mb', extended: true }));
 
-const authRoutes = require('./routes/auth');
-const productRoutes = require('./routes/products');
-const cartRoutes = require('./routes/cart');
-const paymentRoutes = require('./routes/payment');
-const discountRoutes = require('./routes/discount');
-const businessRulesRoutes = require('./routes/business-rules');
-const healthRoutes = require('./routes/health');
+    app.use((req, res, next) => {
+        console.log(`${req.method} ${req.url}`);
+        next();
+    });
 
-console.log('Registering API routes...');
+    const authRoutes = require('./routes/auth');
+    const productRoutes = require('./routes/products');
+    const cartRoutes = require('./routes/cart');
+    const paymentRoutes = require('./routes/payment');
+    const discountRoutes = require('./routes/discount');
+    const businessRulesRoutes = require('./routes/business-rules');
+    const healthRoutes = require('./routes/health');
 
-app.use('/api/auth', authRoutes);
-app.use('/api/products', productRoutes);
-app.use('/api/cart', cartRoutes);
-app.use('/api/orders', require('./routes/orders'));
-console.log('Phone search route loading...');
-app.use('/api/orders', require('./routes/order-phone'));
-console.log('Phone search route loaded');
-app.use('/api/payment', paymentRoutes);
-app.use('/api/discounts', discountRoutes);
-app.use('/api/business-rules', businessRulesRoutes);
-app.use('/api/health', healthRoutes);
+    console.log('Registering API routes...');
 
-console.log('API routes registered');
+    app.use('/api/auth', authRoutes);
+    app.use('/api/products', productRoutes);
+    app.use('/api/cart', cartRoutes);
+    app.use('/api/orders', require('./routes/orders'));
+    console.log('Phone search route loading...');
+    app.use('/api/orders', require('./routes/order-phone'));
+    console.log('Phone search route loaded');
+    app.use('/api/payment', paymentRoutes);
+    app.use('/api/discounts', discountRoutes);
+    app.use('/api/business-rules', businessRulesRoutes);
+    app.use('/api/health', healthRoutes);
 
-app.use(express.static(path.join(__dirname, '../docs')));
-app.use('/products', express.static(path.join(__dirname, '../products')));
+    console.log('API routes registered');
 
-app.get('*', (req, res) => {
-    if (req.path.startsWith('/api/')) {
-        return res.status(404).json({ error: 'API endpoint not found' });
-    }
-    res.sendFile(path.join(__dirname, '../docs/index.html'));
-});
+    app.use(express.static(path.join(__dirname, '../docs')));
+    app.use('/products', express.static(path.join(__dirname, '../products')));
+
+    app.get('*', (req, res) => {
+        if (req.path.startsWith('/api/')) {
+            return res.status(404).json({ error: 'API endpoint not found' });
+        }
+        res.sendFile(path.join(__dirname, '../docs/index.html'));
+    });
+
+    return app;
+};
+
+const app = createApp();
 
 const startServer = async () => {
     await initDB();
@@ -62,9 +69,11 @@ const startServer = async () => {
     }
 };
 
-startServer().catch((error) => {
-    console.error('Failed to start server:', error);
-    process.exit(1);
-});
+if (require.main === module) {
+    startServer().catch((error) => {
+        console.error('Failed to start server:', error);
+        process.exit(1);
+    });
+}
 
 module.exports = app;

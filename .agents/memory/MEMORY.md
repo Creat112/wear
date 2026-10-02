@@ -1,0 +1,1 @@
+- [Safe API test database](safe-api-test-database.md) — force test runs away from shared database credentials before initializing temporary SQLite.
