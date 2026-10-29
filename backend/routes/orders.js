@@ -3,6 +3,7 @@ const router = express.Router();
 const { getDB } = require('../database/init');
 const { sendOrderEmail, sendCustomerOrderEmailWithTracking, sendOrderStatusUpdateEmail } = require('../utils/email');
 const { authenticateJWT, optionalAuthenticateJWT, requireAdmin } = require('../middleware/auth');
+const { limitOrderSubmissions } = require('../middleware/rateLimit');
 
 // Get all orders (Admin)
 router.get('/', authenticateJWT, requireAdmin, async (req, res) => {
@@ -129,7 +130,7 @@ router.get('/mine', authenticateJWT, async (req, res) => {
 });
 
 // Create new order with stock validation
-router.post('/', authenticateJWT, async (req, res) => {
+router.post('/', authenticateJWT, limitOrderSubmissions, async (req, res) => {
     const {
         customer: customerInput = {},
         shipping,
@@ -157,6 +158,29 @@ router.post('/', authenticateJWT, async (req, res) => {
         email: userRows[0].email
     };
     const userId = userRows[0].id;
+    const checkoutRequestId = String(req.get('Idempotency-Key') || orderNumber || '').trim();
+    if (!checkoutRequestId || checkoutRequestId.length > 64 || !/^[A-Za-z0-9._:-]+$/.test(checkoutRequestId)) {
+        return res.status(400).json({ error: 'A valid checkout request key is required' });
+    }
+
+    try {
+        const [existingOrders] = await pool.execute(
+            'SELECT id, orderNumber FROM orders WHERE userId = ? AND checkoutRequestId = ?',
+            [userId, checkoutRequestId]
+        );
+        if (existingOrders[0]) {
+            return res.status(200).json({
+                success: true,
+                orderId: existingOrders[0].id,
+                orderNumber: existingOrders[0].orderNumber,
+                duplicate: true
+            });
+        }
+    } catch (err) {
+        console.error('Checkout idempotency check error:', err);
+        return res.status(500).json({ error: 'Unable to validate this checkout request' });
+    }
+
     const connection = await pool.getConnection();
 
     try {
@@ -221,10 +245,10 @@ router.post('/', authenticateJWT, async (req, res) => {
 
         // Proceed with order creation
         const [result] = await connection.execute(`
-            INSERT INTO orders (orderNumber, userId, total, discount_code, discount_amount, status, date, customerName, customerEmail, customerPhone, shippingAddress, shippingCity, shippingGov, notes, payment_method)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO orders (orderNumber, userId, checkoutRequestId, total, discount_code, discount_amount, status, date, customerName, customerEmail, customerPhone, shippingAddress, shippingCity, shippingGov, notes, payment_method)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `, [
-            orderNumber, userId, total, discountCode, discountAmount, 'pending', mysqlDate,
+            orderNumber, userId, checkoutRequestId, total, discountCode, discountAmount, 'pending', mysqlDate,
             customer.fullName, customer.email, customer.phone, 
             shipping.address, shipping.city, shipping.governorate, shipping.notes, paymentMethod
         ]);
@@ -294,9 +318,24 @@ router.post('/', authenticateJWT, async (req, res) => {
             })();
         }
 
-        res.status(201).json({ success: true, orderId });
+        res.status(201).json({ success: true, orderId, orderNumber });
     } catch (err) {
         await connection.rollback();
+        if (err.code === 'ER_DUP_ENTRY' || String(err.code || '').startsWith('SQLITE_CONSTRAINT')) {
+            const [existingOrders] = await pool.execute(
+                'SELECT id, orderNumber FROM orders WHERE userId = ? AND checkoutRequestId = ?',
+                [userId, checkoutRequestId]
+            );
+            if (existingOrders[0]) {
+                return res.status(200).json({
+                    success: true,
+                    orderId: existingOrders[0].id,
+                    orderNumber: existingOrders[0].orderNumber,
+                    duplicate: true
+                });
+            }
+            return res.status(409).json({ error: 'Order number already exists' });
+        }
         console.error('Order creation error:', err);
         res.status(500).json({ error: err.message });
     } finally {

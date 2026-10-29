@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { getDB } = require('../database/init');
 const { authenticateJWT, requireAdmin } = require('../middleware/auth');
+const { limitProductSearch } = require('../middleware/rateLimit');
 
 // MySQL returns DECIMAL columns as strings — cast them to JS numbers
 function normalizeProduct(p) {
@@ -35,7 +36,7 @@ function normalizeSize(s) {
 // Legacy callers still receive an array. Paginated callers receive
 // { items, pagination } so the catalog can avoid loading the entire image-heavy
 // product table on every page visit.
-router.get('/', async (req, res) => {
+router.get('/', limitProductSearch, async (req, res) => {
     const { category, includeDisabled, page, limit, search, color, sort, inStock } = req.query;
     const pool = getDB();
 

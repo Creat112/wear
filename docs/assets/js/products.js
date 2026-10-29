@@ -11,7 +11,7 @@ async function getProducts(category = null) {
     }
 }
 
-async function getProductsPage(options = {}) {
+async function getProductsPage(options = {}, requestOptions = {}) {
     try {
         const params = new URLSearchParams();
         Object.entries(options).forEach(([key, value]) => {
@@ -20,7 +20,7 @@ async function getProductsPage(options = {}) {
             }
         });
 
-        const response = await api.get(`/products?${params.toString()}`);
+        const response = await api.get(`/products?${params.toString()}`, requestOptions);
         if (Array.isArray(response)) {
             return {
                 items: response,

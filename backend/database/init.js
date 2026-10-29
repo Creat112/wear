@@ -256,6 +256,7 @@ const createSQLiteTables = async () => {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             orderNumber TEXT UNIQUE NOT NULL,
             userId INTEGER NULL,
+            checkoutRequestId TEXT NULL,
             total REAL NOT NULL,
             discount_code TEXT NULL,
             discount_amount REAL DEFAULT 0,
@@ -282,6 +283,15 @@ const createSQLiteTables = async () => {
     } catch (err) {
         // Existing SQLite databases already have this additive column.
     }
+    try {
+        await pool.execute('ALTER TABLE orders ADD COLUMN checkoutRequestId TEXT NULL');
+    } catch (err) {
+        if (!/duplicate column/i.test(err.message)) throw err;
+    }
+    await pool.execute(`
+        CREATE UNIQUE INDEX IF NOT EXISTS orders_user_checkout_request_unique
+        ON orders (userId, checkoutRequestId)
+    `);
     await pool.execute(`
         UPDATE orders
         SET userId = (
@@ -463,6 +473,7 @@ const createTables = async () => {
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 orderNumber VARCHAR(255) UNIQUE NOT NULL,
                 userId INT NULL,
+                checkoutRequestId VARCHAR(64) NULL,
                 total DECIMAL(10, 2) NOT NULL,
                 discount_code VARCHAR(50) NULL,
                 discount_amount DECIMAL(10, 2) DEFAULT 0,
@@ -489,6 +500,23 @@ const createTables = async () => {
         } catch (migrationErr) {
             if (migrationErr.code !== 'ER_DUP_FIELDNAME' && !migrationErr.message.includes('Duplicate column') && !migrationErr.message.includes('duplicate')) {
                 console.log('Migration note for orders.userId:', migrationErr.message);
+            }
+        }
+        try {
+            await pool.execute('ALTER TABLE orders ADD COLUMN checkoutRequestId VARCHAR(64) NULL');
+        } catch (migrationErr) {
+            if (migrationErr.code !== 'ER_DUP_FIELDNAME' && !migrationErr.message.includes('Duplicate column') && !migrationErr.message.includes('duplicate')) {
+                throw migrationErr;
+            }
+        }
+        try {
+            await pool.execute(`
+                CREATE UNIQUE INDEX orders_user_checkout_request_unique
+                ON orders (userId, checkoutRequestId)
+            `);
+        } catch (migrationErr) {
+            if (migrationErr.code !== 'ER_DUP_KEYNAME' && !/duplicate key name/i.test(migrationErr.message)) {
+                throw migrationErr;
             }
         }
         await pool.execute(`

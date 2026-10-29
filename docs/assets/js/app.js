@@ -7,6 +7,7 @@ const SHIPPING_FEE = 90;
 const PRODUCT_PAGE_SIZE = 8;
 let productsRequestId = 0;
 let searchDebounceTimer;
+let activeProductsController = null;
 
 // Initialize
 document.addEventListener('DOMContentLoaded', async () => {
@@ -69,21 +70,30 @@ document.addEventListener('DOMContentLoaded', async () => {
                     clearTimeout(searchDebounceTimer);
                     searchDebounceTimer = setTimeout(() => {
                         loadProducts(categoryFilter ? categoryFilter.value : null, colorFilter ? colorFilter.value : null, sortBy ? sortBy.value : null, searchInput.value, 1);
-                    }, 250);
+                    }, 300);
                 });
                 
-                searchInput.addEventListener('keypress', (e) => {
+                searchInput.addEventListener('keydown', (e) => {
                     if (e.key === 'Enter') {
-                        clearTimeout(searchDebounceTimer);
-                        loadProducts(categoryFilter ? categoryFilter.value : null, colorFilter ? colorFilter.value : null, sortBy ? sortBy.value : null, searchInput.value, 1);
+                        e.preventDefault();
+                        loadSearchResults();
                     }
                 });
             }
 
             if (searchBtn) {
-                searchBtn.addEventListener('click', () => {
-                    loadProducts(categoryFilter ? categoryFilter.value : null, colorFilter ? colorFilter.value : null, sortBy ? sortBy.value : null, searchInput ? searchInput.value : null);
-                });
+                searchBtn.addEventListener('click', loadSearchResults);
+            }
+
+            function loadSearchResults() {
+                clearTimeout(searchDebounceTimer);
+                loadProducts(
+                    categoryFilter ? categoryFilter.value : null,
+                    colorFilter ? colorFilter.value : null,
+                    sortBy ? sortBy.value : null,
+                    searchInput ? searchInput.value : null,
+                    1
+                );
             }
         }
 
@@ -230,7 +240,11 @@ async function loadProducts(category = null, color = null, sortBy = null, search
     const containers = document.querySelectorAll('.products-grid');
     if (containers.length === 0) return;
 
+    clearTimeout(searchDebounceTimer);
     const requestId = ++productsRequestId;
+    if (activeProductsController) activeProductsController.abort();
+    const controller = new AbortController();
+    activeProductsController = controller;
     const filters = { category, color, sortBy, searchQuery };
     showProductSkeletons();
 
@@ -242,7 +256,7 @@ async function loadProducts(category = null, color = null, sortBy = null, search
             color,
             sort: sortBy,
             search: searchQuery
-        });
+        }, { signal: controller.signal });
         if (requestId !== productsRequestId) return;
 
         const products = response.items || [];
@@ -327,13 +341,14 @@ async function loadProducts(category = null, color = null, sortBy = null, search
             container.innerHTML = html;
         });
     } catch (error) {
+        if (error.name === 'AbortError') return;
         console.error('Error loading products:', error);
         if (requestId === productsRequestId) {
             containers.forEach(container => {
                 container.innerHTML = `
                     <div class="catalog-error">
                         <i class="ri-wifi-off-line"></i>
-                        <p>We couldn't load the products right now.</p>
+                        <p>${error.status === 429 ? 'Too many searches. Please wait a moment before trying again.' : "We couldn't load the products right now."}</p>
                         <button class="btn retry-products">Try again</button>
                     </div>
                 `;
@@ -342,6 +357,8 @@ async function loadProducts(category = null, color = null, sortBy = null, search
                 });
             });
         }
+    } finally {
+        if (requestId === productsRequestId) activeProductsController = null;
     }
 }
 

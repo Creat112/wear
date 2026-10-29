@@ -116,6 +116,36 @@ test('invalid and expired access tokens return 401, while customers cannot use a
     assert.equal(adminRoute.response.status, 403);
 });
 
+test('product search rate-limits bursts to 60 requests per minute', async () => {
+    const responses = [];
+    for (let requestNumber = 0; requestNumber < 61; requestNumber += 1) {
+        responses.push(await request('/api/products?search=rate-limit-check'));
+    }
+
+    assert.equal(responses.slice(0, 60).every(result => result.response.status === 200), true);
+    assert.equal(responses[60].response.status, 429);
+    assert.ok(Number(responses[60].response.headers.get('retry-after')) > 0);
+});
+
+test('order endpoint limits rapid submissions for the same account', async () => {
+    const user = await createUser(
+        'Order Rate Limit Test',
+        `security-order-limit-${Date.now()}@example.test`
+    );
+    const responses = [];
+
+    for (let requestNumber = 0; requestNumber < 11; requestNumber += 1) {
+        responses.push(await request('/api/orders', {
+            method: 'POST',
+            headers: { authorization: `Bearer ${user.accessToken}` },
+            body: JSON.stringify({})
+        }));
+    }
+
+    assert.equal(responses.slice(0, 10).every(result => result.response.status === 400), true);
+    assert.equal(responses[10].response.status, 429);
+});
+
 test('refresh tokens rotate and logout revokes the active refresh token', async () => {
     const user = await createUser(
         'Refresh Test',
@@ -222,43 +252,67 @@ test('checkout creates the order for the authenticated account, ignoring submitt
         ['Checkout Ownership Product', 40, 5]
     );
     const orderNumber = `SECURITY-CHECKOUT-${Date.now()}`;
+    const checkoutRequestId = `checkout-${Date.now()}`;
+    const checkoutPayload = {
+        userId: otherUser.user.id,
+        customer: {
+            fullName: 'Submitted Name',
+            email: otherUser.user.email,
+            phone: '01022223333'
+        },
+        shipping: {
+            address: 'Checkout address',
+            city: 'Cairo',
+            governorate: 'Cairo',
+            notes: ''
+        },
+        items: [{
+            productId: product.insertId,
+            quantity: 1,
+            price: 40,
+            name: 'Checkout Ownership Product'
+        }],
+        total: 130,
+        orderNumber,
+        date: new Date().toISOString()
+    };
 
     const created = await request('/api/orders', {
         method: 'POST',
-        headers: { authorization: `Bearer ${owner.accessToken}` },
-        body: JSON.stringify({
-            userId: otherUser.user.id,
-            customer: {
-                fullName: 'Submitted Name',
-                email: otherUser.user.email,
-                phone: '01022223333'
-            },
-            shipping: {
-                address: 'Checkout address',
-                city: 'Cairo',
-                governorate: 'Cairo',
-                notes: ''
-            },
-            items: [{
-                productId: product.insertId,
-                quantity: 1,
-                price: 40,
-                name: 'Checkout Ownership Product'
-            }],
-            total: 130,
-            orderNumber,
-            date: new Date().toISOString()
-        })
+        headers: {
+            authorization: `Bearer ${owner.accessToken}`,
+            'Idempotency-Key': checkoutRequestId
+        },
+        body: JSON.stringify(checkoutPayload)
     });
     assert.equal(created.response.status, 201);
 
+    const duplicate = await request('/api/orders', {
+        method: 'POST',
+        headers: {
+            authorization: `Bearer ${owner.accessToken}`,
+            'Idempotency-Key': checkoutRequestId
+        },
+        body: JSON.stringify(checkoutPayload)
+    });
+    assert.equal(duplicate.response.status, 200);
+    assert.equal(duplicate.body.duplicate, true);
+    assert.equal(duplicate.body.orderId, created.body.orderId);
+    assert.equal(duplicate.body.orderNumber, orderNumber);
+
     const [orders] = await pool.execute(
-        'SELECT userId, customerName, customerEmail FROM orders WHERE id = ?',
+        'SELECT userId, checkoutRequestId, customerName, customerEmail FROM orders WHERE id = ?',
         [created.body.orderId]
     );
+    const [duplicateOrders] = await pool.execute(
+        'SELECT COUNT(*) as count FROM orders WHERE userId = ? AND checkoutRequestId = ?',
+        [owner.user.id, checkoutRequestId]
+    );
     assert.equal(Number(orders[0].userId), Number(owner.user.id));
+    assert.equal(orders[0].checkoutRequestId, checkoutRequestId);
     assert.equal(orders[0].customerName, owner.user.name);
     assert.equal(orders[0].customerEmail, owner.user.email);
+    assert.equal(Number(duplicateOrders[0].count), 1);
 
     const ownerOrders = await request('/api/orders/mine', {
         headers: { authorization: `Bearer ${owner.accessToken}` }

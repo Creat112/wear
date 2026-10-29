@@ -78,6 +78,18 @@ window.addEventListener("DOMContentLoaded", () => {
 
     let appliedDiscount = null;
 
+    function getCheckoutRequestId() {
+        const storageKey = 'pendingCheckoutRequestId';
+        let requestId = sessionStorage.getItem(storageKey);
+        if (!requestId) {
+            requestId = window.crypto?.randomUUID
+                ? window.crypto.randomUUID()
+                : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+            sessionStorage.setItem(storageKey, requestId);
+        }
+        return requestId;
+    }
+
     // Generate unique order number using timestamp + random
     function generateOrderNumber() {
         const timestamp = Date.now().toString(36).toUpperCase(); // Base36 timestamp
@@ -650,10 +662,13 @@ window.addEventListener("DOMContentLoaded", () => {
             try {
                 // Cash on Delivery - direct order placement
                 console.log('About to place order. appliedDiscount:', appliedDiscount);
-                const result = await api.post('/orders', orderData);
+                const result = await api.post('/orders', orderData, {
+                    headers: { 'Idempotency-Key': getCheckoutRequestId() }
+                });
                 console.log('Order result:', result);
 
                 if (result.success || result.orderId) {
+                    if (result.orderNumber) orderData.orderNumber = result.orderNumber;
                     console.log('Order success! Storing discount if exists...');
                     // Store used discount code to prevent reuse
                     if (appliedDiscount && appliedDiscount.code) {
@@ -679,6 +694,7 @@ window.addEventListener("DOMContentLoaded", () => {
                     console.log('Verification - localStorage key:', verifyKey, 'value:', verifyData);
                     
                     sessionStorage.setItem("currentOrder", JSON.stringify(orderData));
+                    sessionStorage.removeItem('pendingCheckoutRequestId');
                     localStorage.removeItem("checkoutItems");
                     
                     // Small delay to ensure localStorage is persisted
@@ -696,7 +712,13 @@ window.addEventListener("DOMContentLoaded", () => {
                 }
             } catch (error) {
                 console.error('Order error:', error);
-                alert('Error placing order. Please try again.');
+                if (error.status === 429) {
+                    alert(error.message || 'Too many order attempts. Please wait a moment and try again.');
+                } else if (error.status === 401) {
+                    alert('Your session expired. Please sign in again before placing your order.');
+                } else {
+                    alert('Error placing order. Please try again.');
+                }
                 isSubmitting = false; // Reset on error
                 // Re-enable submit button
                 const submitBtn = document.getElementById('submit-order-btn');

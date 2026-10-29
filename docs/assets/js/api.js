@@ -54,8 +54,8 @@ export const refreshAccessToken = async () => {
     return refreshPromise;
 };
 
-const request = async (endpoint, { method = 'GET', data, retry = true } = {}) => {
-    const headers = {};
+const request = async (endpoint, { method = 'GET', data, retry = true, signal, headers: extraHeaders = {} } = {}) => {
+    const headers = { ...extraHeaders };
     const token = getAccessToken();
     if (token) headers.Authorization = `Bearer ${token}`;
     if (data !== undefined) headers['Content-Type'] = 'application/json';
@@ -64,7 +64,8 @@ const request = async (endpoint, { method = 'GET', data, retry = true } = {}) =>
         method,
         headers,
         credentials: 'same-origin',
-        body: data === undefined ? undefined : JSON.stringify(data)
+        body: data === undefined ? undefined : JSON.stringify(data),
+        signal
     });
     const result = await response.json().catch(() => ({}));
 
@@ -75,7 +76,7 @@ const request = async (endpoint, { method = 'GET', data, retry = true } = {}) =>
     ) {
         const refreshed = await refreshAccessToken();
         if (refreshed) {
-            return request(endpoint, { method, data, retry: false });
+            return request(endpoint, { method, data, retry: false, signal, headers: extraHeaders });
         }
     }
 
@@ -88,8 +89,8 @@ const request = async (endpoint, { method = 'GET', data, retry = true } = {}) =>
 };
 
 export const api = {
-    get: endpoint => request(endpoint),
-    post: (endpoint, data) => request(endpoint, { method: 'POST', data }),
+    get: (endpoint, options = {}) => request(endpoint, options),
+    post: (endpoint, data, options = {}) => request(endpoint, { ...options, method: 'POST', data }),
     put: (endpoint, data) => request(endpoint, { method: 'PUT', data }),
     delete: endpoint => request(endpoint, { method: 'DELETE' })
 };
